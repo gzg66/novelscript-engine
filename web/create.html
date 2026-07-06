@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新建项目 · NovelScript</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="page-create">
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand brand-link" href="/">
+        <span class="brand-engine">NovelScript Engine</span>
+      </a>
+      <nav class="header-nav">
+        <a href="/">工作台</a>
+        <a href="/create.html" aria-current="page">新建项目</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="create-main">
+    <div class="create-card">
+      <div class="section-head">
+        <h2>新建改编项目</h2>
+        <p>上传小说原文（.txt），系统将创建项目目录并建立章节索引</p>
+      </div>
+
+      <form id="create-form" class="create-form">
+        <label class="field-label" for="project-title">项目显示名（可选）</label>
+        <input class="field-input" id="project-title" name="title" type="text" placeholder="例如：冰霜觉醒与深渊之契" maxlength="80">
+
+        <label class="field-label">小说原文</label>
+        <div id="drop-zone" class="drop-zone" tabindex="0" role="button" aria-label="点击或拖拽上传 txt 文件">
+          <input id="novel-file" name="file" type="file" accept=".txt,text/plain" hidden>
+          <div class="drop-zone-inner">
+            <p class="drop-title">拖拽 .txt 到此处</p>
+            <p class="drop-hint">或点击选择文件 · 最大 50MB</p>
+            <p class="drop-file" id="file-name">尚未选择文件</p>
+          </div>
+        </div>
+
+        <div class="field-row">
+          <label class="field-label" for="project-mode">改编模式</label>
+          <select class="field-input field-select" id="project-mode" name="mode">
+            <option value="M1" selected>M1 · 标准精编（MVP）</option>
+          </select>
+        </div>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="rights-check" required>
+          <span>我确认拥有该小说的改编授权或合法使用权</span>
+        </label>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="autostart-check" checked>
+          <span>创建后自动开始精编；S2 季图谱与试播集前会暂停等待你审核通过</span>
+        </label>
+
+        <p id="form-error" class="form-error" hidden></p>
+
+        <div id="upload-progress" class="upload-progress" hidden aria-live="polite">
+          <div class="upload-progress-steps">
+            <div class="upload-step" id="step-upload">
+              <span class="upload-step-dot"></span>
+              <span class="upload-step-label">上传小说原文</span>
+            </div>
+            <div class="upload-step" id="step-create">
+              <span class="upload-step-dot"></span>
+              <span class="upload-step-label">创建项目目录</span>
+            </div>
+            <div class="upload-step" id="step-index">
+              <span class="upload-step-dot"></span>
+              <span class="upload-step-label">建立章节索引</span>
+            </div>
+          </div>
+          <p class="upload-progress-msg" id="upload-msg">准备上传…</p>
+        </div>
+
+        <div class="form-actions" id="form-actions">
+          <a class="btn btn-ghost" href="/">取消</a>
+          <button class="btn btn-primary" type="submit" id="submit-btn">创建并开始精编</button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <p>创建后将跳转到项目页，默认自动开始精编并在页面顶部实时显示进度</p>
+  </footer>
+
+  <script src="create.js"></script>
+</body>
+</html>

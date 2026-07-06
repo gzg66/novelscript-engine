@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novelscript.local/schemas/museframe_scene.v1.json",
+  "title": "Museframe Handoff Episode Script",
+  "description": "Downstream contract. Maps presentation_hint -> visual_hint at export.",
+  "type": "object",
+  "required": ["episode_id", "script", "character_bible_slice", "visual_tone"],
+  "properties": {
+    "episode_id": { "type": "string" },
+    "global_episode_id": { "type": "string" },
+    "script": {
+      "type": "object",
+      "required": ["logline", "scenes"],
+      "properties": {
+        "logline": { "type": "string" },
+        "scenes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["scene_id", "location", "time", "characters", "beats"],
+            "properties": {
+              "scene_id": { "type": "string" },
+              "source_index": { "type": "array", "items": { "type": "string" } },
+              "location": { "type": "string" },
+              "time": { "type": "string" },
+              "characters": { "type": "array", "items": { "type": "string" } },
+              "scene_goal": { "type": "string" },
+              "conflict_resistance": { "type": "string" },
+              "emotion_arc": { "type": "string" },
+              "duration_target_sec": { "type": "integer" },
+              "beats": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["action", "dramatic_function", "visual_hint"],
+                  "properties": {
+                    "beat_id": { "type": "string" },
+                    "source_index": { "type": "string" },
+                    "action": { "type": "string" },
+                    "dialogue": { "type": "string" },
+                    "sound": { "type": "string" },
+                    "dramatic_function": { "type": "string" },
+                    "visual_hint": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "character_bible_slice": { "type": "object" },
+    "series_premise": { "type": "object" },
+    "visual_tone": { "type": "string" }
+  }
+}

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NovelScript Engine · 工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="page-home">
+  <canvas id="frost-canvas" aria-hidden="true"></canvas>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand brand-link" href="/">
+        <span class="brand-engine">NovelScript Engine</span>
+      </a>
+      <nav class="header-nav" aria-label="页面导航">
+        <a href="/" aria-current="page">工作台</a>
+        <a href="/create.html">新建项目</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="portal-hero">
+      <p class="hero-eyebrow">小说 → 分季分集剧本</p>
+      <h1 class="hero-title">把网文 IP 精编为<br>可交棒的结构化剧本</h1>
+      <p class="portal-lead">
+        上传小说原文，自动建立项目索引，经 S0–S5 六阶段产出改编简报、季图谱与场次剧本。
+      </p>
+      <div class="portal-actions">
+        <a class="btn btn-primary" href="/create.html">新建项目</a>
+        <a class="btn btn-ghost" href="#projects">查看已有项目</a>
+      </div>
+    </section>
+
+    <section id="projects" class="projects-section">
+      <div class="section-head">
+        <h2>我的项目</h2>
+        <p>选择项目进入解析与产物阅读</p>
+      </div>
+      <div id="projects-grid" class="projects-grid">
+        <p class="projects-loading">加载项目列表…</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>NovelScript Engine · 百集级网文 IP 剧本精编</p>
+  </footer>
+
+  <script src="home.js"></script>
+</body>
+</html>

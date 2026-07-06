@@ -1,0 +1,43 @@
+{
+  "app": {
+    "host": "0.0.0.0",
+    "port": 8020
+  },
+  "workspace": {
+    "base_dir": ".runs"
+  },
+  "llm_core": {
+    "path": "../museframe4video/vendor/llm_core"
+  },
+  "support_api": {
+    "enabled": true,
+    "base_url": {
+      "Online": "https://gencomic-support-api.test.stary.ltd",
+      "Test": "https://gencomic-support-api.test.stary.ltd"
+    },
+    "service_id": "gencomic_auto_video_pre_api",
+    "env": "Test",
+    "timeout": 10,
+    "heartbeat_interval_seconds": 60
+  },
+  "llm": {
+    "provider": "gemini",
+    "model": "gemini_35_flash",
+    "max_tokens": 65536,
+    "max_retries": 3,
+    "timeout": 600,
+    "temperature": 0.5
+  },
+  "conversion_llm": {
+    "provider": "gemini",
+    "model": "gemini_flash",
+    "max_tokens": 65536,
+    "max_retries": 3,
+    "timeout": 600,
+    "temperature": 0.2
+  },
+  "pipeline": {
+    "max_workers": 4,
+    "max_attempts": 3
+  }
+}

@@ -1,0 +1,38 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.cover
+
+# Runtime / pipeline workspace
+.runs/
+*.partial
+approved/
+audit/
+export/
+input/
+projects/
+
+# IDE & local tooling
+.codegraph/
+.cursor/
+.vscode/
+.idea/
+
+# Secrets & local config overrides
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db

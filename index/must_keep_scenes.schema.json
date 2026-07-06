@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Must Keep Scenes Index",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "name", "source_chapters", "engines", "why_irreducible"],
+    "properties": {
+      "id": { "type": "integer" },
+      "name": { "type": "string" },
+      "source_chapters": { "type": "array", "items": { "type": "integer" } },
+      "engines": { "type": "array", "items": { "type": "string" } },
+      "why_irreducible": { "type": "string" },
+      "season_id": { "type": ["string", "null"] },
+      "episode_id": { "type": ["string", "null"] },
+      "scene_id": { "type": ["string", "null"] },
+      "key_dialogue_ids": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

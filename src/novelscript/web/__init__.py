@@ -1,0 +1,1 @@
+"""NovelScript web portal helpers."""

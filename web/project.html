@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目解析 · NovelScript</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=20260706e">
+</head>
+<body>
+  <canvas id="frost-canvas" aria-hidden="true"></canvas>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand brand-link" href="/">
+        <span class="brand-engine">NovelScript Engine</span>
+        <span class="brand-divider">·</span>
+        <span class="brand-project" id="header-slug">…</span>
+      </a>
+      <nav class="header-nav" aria-label="页面导航">
+        <a href="/">工作台</a>
+        <a href="#overview">概览</a>
+        <a href="#pipeline">管线</a>
+        <a href="#seasons">季谱</a>
+        <a href="#documents">文档</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="project-toolbar" id="project-toolbar">
+    <div class="toolbar-inner">
+      <div class="toolbar-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">就绪</span>
+      </div>
+      <div class="toolbar-actions">
+        <button type="button" class="btn btn-sm btn-ghost" id="btn-refresh">刷新状态</button>
+        <button type="button" class="btn btn-sm btn-primary" id="btn-run">开始精编（S0→S5）</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="progress-panel" id="progress-panel" aria-live="polite" aria-atomic="false">
+    <div class="progress-panel-inner">
+      <div class="progress-head">
+        <div class="progress-head-text">
+          <p class="progress-eyebrow" id="progress-phase">项目状态</p>
+          <h2 class="progress-title" id="progress-message">加载中…</h2>
+        </div>
+        <div class="progress-meta">
+          <span class="progress-pct" id="progress-pct">0%</span>
+          <span class="progress-stages" id="progress-stages"></span>
+        </div>
+      </div>
+
+      <div class="progress-reel" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-reel">
+        <div class="progress-reel-track">
+          <div class="progress-reel-fill" id="progress-fill"></div>
+          <div class="progress-reel-needle" id="progress-needle"></div>
+        </div>
+      </div>
+
+      <ol class="progress-steps" id="progress-steps" aria-label="精编管线步骤">
+        <li class="progress-step" data-phase="index"><span class="progress-step-mark"></span><span class="progress-step-name">章节索引</span></li>
+        <li class="progress-step" data-phase="stage0"><span class="progress-step-mark"></span><span class="progress-step-name">上游准备</span></li>
+        <li class="progress-step" data-phase="S0"><span class="progress-step-mark"></span><span class="progress-step-name">S0 故事引擎</span></li>
+        <li class="progress-step" data-phase="S1"><span class="progress-step-mark"></span><span class="progress-step-name">S1 系列定位</span></li>
+        <li class="progress-step" data-phase="S2"><span class="progress-step-mark"></span><span class="progress-step-name">S2 季图谱</span></li>
+        <li class="progress-step" data-phase="S3"><span class="progress-step-mark"></span><span class="progress-step-name">S3 分集清单</span></li>
+        <li class="progress-step" data-phase="S4/S5"><span class="progress-step-mark"></span><span class="progress-step-name">S4/S5 剧本</span></li>
+        <li class="progress-step" data-phase="fidelity"><span class="progress-step-mark"></span><span class="progress-step-name">忠实度审计</span></li>
+        <li class="progress-step" data-phase="done"><span class="progress-step-mark"></span><span class="progress-step-name">全部完成</span></li>
+      </ol>
+
+      <div class="progress-episode" id="progress-episode" hidden>
+        <div class="progress-episode-head">
+          <span class="progress-episode-label">剧本精编进度</span>
+          <span class="progress-episode-count" id="progress-episode-count">0 / 0 集</span>
+        </div>
+        <div class="progress-episode-track">
+          <div class="progress-episode-fill" id="progress-episode-fill"></div>
+        </div>
+      </div>
+
+      <div class="progress-body">
+        <div class="progress-activity" id="progress-activity">
+          <p class="progress-activity-empty">启动精编后，这里会实时显示当前步骤，无需查看终端。</p>
+        </div>
+        <p class="progress-elapsed" id="progress-elapsed" hidden></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="approval-gate" id="approval-gate" hidden aria-live="polite">
+    <div class="approval-gate-inner">
+      <div class="approval-gate-rail" aria-hidden="true">
+        <span class="approval-gate-valve"></span>
+      </div>
+      <div class="approval-gate-content">
+        <header class="approval-gate-head">
+          <p class="approval-gate-eyebrow" id="approval-eyebrow">审批闸</p>
+          <h2 class="approval-gate-title" id="approval-title">待审</h2>
+        </header>
+        <p class="approval-gate-lead" id="approval-message"></p>
+        <ul class="approval-gate-issues" id="approval-issues" hidden></ul>
+        <div class="approval-gate-actions">
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-approval-preview">阅读产物</button>
+          <button type="button" class="btn btn-sm btn-ghost" id="btn-approval-rerun">重新生成此阶段</button>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-approval-pass">审核通过，继续精编</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <main>
+    <section id="overview" class="hero">
+      <div class="hero-frame">
+        <div class="hero-content">
+          <p class="hero-eyebrow" id="project-meta">加载中…</p>
+          <h1 class="hero-title" id="project-title">…</h1>
+          <p class="hero-subtitle" id="project-subtitle"></p>
+          <p class="hero-logline" id="project-logline">正在加载项目信息…</p>
+          <div class="hero-stats" id="hero-stats"></div>
+        </div>
+      </div>
+
+      <div class="triangle-section" id="triangle-section" hidden>
+        <h2 class="section-label">核心三角</h2>
+        <div class="character-triangle" id="character-triangle" role="img"></div>
+      </div>
+    </section>
+
+    <section id="pipeline" class="pipeline-section">
+      <div class="section-head">
+        <h2>改编管线</h2>
+        <p>S0–S5 六阶段精编流程 · 结构化产出可校验、可局部重跑</p>
+      </div>
+      <div class="pipeline-track" id="pipeline-track"></div>
+      <div class="engines-grid" id="engines-grid"></div>
+    </section>
+
+    <section id="seasons" class="seasons-section">
+      <div class="section-head">
+        <h2>季图谱</h2>
+        <p id="seasons-subtitle">章节重组为季 · 每季命题 / 危机 / 钩子</p>
+      </div>
+      <div class="seasons-scroll" id="seasons-scroll"></div>
+      <p class="section-empty" id="seasons-empty" hidden>S2 季图谱生成后将在此展示</p>
+    </section>
+
+    <section id="documents" class="docs-section">
+      <div class="section-head">
+        <h2>产物文档</h2>
+        <p>点击左侧条目阅读 Markdown 精编产物</p>
+      </div>
+      <div class="docs-layout">
+        <aside class="docs-sidebar" id="docs-sidebar" aria-label="文档列表"></aside>
+        <article class="docs-viewer">
+          <header class="docs-viewer-header">
+            <h3 id="doc-title">选择文档</h3>
+            <span class="doc-stage-badge" id="doc-stage"></span>
+          </header>
+          <div class="docs-content prose" id="doc-content">
+            <p class="docs-placeholder">从左侧选择一份产物文档，或点击「开始精编」运行 S0–S5 全阶段管线。</p>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>NovelScript Engine · <span id="footer-project">…</span> · 项目解析</p>
+  </footer>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="project.js?v=20260706e"></script>
+</body>
+</html>

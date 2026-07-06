@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novelscript.local/schemas/script.schema.v1.json",
+  "title": "NovelScript Episode Script",
+  "type": "object",
+  "required": ["episode_id", "global_episode_id", "logline", "scenes"],
+  "properties": {
+    "episode_id": { "type": "string", "pattern": "^S\\d+E\\d+$" },
+    "global_episode_id": { "type": "string", "pattern": "^EP\\d{3}$" },
+    "season_id": { "type": "string" },
+    "logline": { "type": "string", "minLength": 1 },
+    "source_chapters": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1 },
+      "minItems": 1
+    },
+    "cliffhanger": { "type": "string" },
+    "serves_engines": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "scenes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/scene" }
+    }
+  },
+  "$defs": {
+    "scene": {
+      "type": "object",
+      "required": [
+        "scene_id",
+        "source_index",
+        "location",
+        "time",
+        "characters",
+        "scene_goal",
+        "conflict_resistance",
+        "emotion_arc",
+        "duration_target_sec",
+        "beats"
+      ],
+      "properties": {
+        "scene_id": { "type": "string" },
+        "source_index": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "location": { "type": "string" },
+        "time": { "type": "string" },
+        "characters": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "scene_goal": { "type": "string" },
+        "conflict_resistance": { "type": "string" },
+        "emotion_arc": { "type": "string" },
+        "duration_target_sec": { "type": "integer", "minimum": 5 },
+        "beats": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/beat" }
+        }
+      }
+    },
+    "beat": {
+      "type": "object",
+      "required": ["beat_id", "source_index", "action", "dramatic_function", "presentation_hint"],
+      "properties": {
+        "beat_id": { "type": "string" },
+        "source_index": { "type": "string" },
+        "action": { "type": "string" },
+        "dialogue": { "type": "string" },
+        "sound": { "type": "string" },
+        "dramatic_function": { "type": "string" },
+        "presentation_hint": { "type": "string" }
+      },
+      "anyOf": [
+        { "required": ["dialogue"] },
+        { "required": ["sound"] }
+      ]
+    }
+  }
+}

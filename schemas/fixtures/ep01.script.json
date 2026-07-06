@@ -1,0 +1,107 @@
+{
+  "episode_id": "S1E01",
+  "global_episode_id": "EP001",
+  "season_id": "S1",
+  "logline": "现代女子雨夜溺亡，睁眼成了失忆落魄贵女",
+  "source_chapters": [1],
+  "cliffhanger": "手心结出不受控的冰",
+  "serves_engines": ["逆袭", "身世之谜"],
+  "scenes": [
+    {
+      "scene_id": "Scene 1",
+      "source_index": ["Ch1 §17-21"],
+      "location": "雨夜桥边公路车内",
+      "time": "夜",
+      "characters": ["伊娃"],
+      "scene_goal": "加完班只想平安开回家睡觉",
+      "conflict_resistance": "暴雨如墙、极度疲惫、突然窜出的动物、咖啡烫、车辆失控",
+      "emotion_arc": "麻木疲惫 → 一瞬惊吓 → 失控恐惧",
+      "duration_target_sec": 25,
+      "beats": [
+        {"beat_id": "1", "source_index": "Ch1 §17", "action": "深夜，雨刷疯狂摆动仍看不清路；她啜一口便利店咖啡，眼下是浓重黑眼圈", "dialogue": "(画外/内心)又是加班到这么晚……再撑一下就到家了。", "dramatic_function": "外化疲惫与孤独", "presentation_hint": "后视镜里的黑眼圈特写；仪表盘冷光"},
+        {"beat_id": "2", "source_index": "Ch1 §19", "action": "一只白色动物窜到车前", "dialogue": "北极狐？在这种地方？——", "dramatic_function": "触发失控", "presentation_hint": "主观视角，雨中白影"},
+        {"beat_id": "3", "source_index": "Ch1 §20", "action": "猛打方向，热咖啡泼上膝盖", "dialogue": "Shit！", "dramatic_function": "意外升级", "presentation_hint": "手过度转向方向盘、咖啡飞溅"},
+        {"beat_id": "4", "source_index": "Ch1 §21", "action": "车撞破护栏，腾空，坠入河中", "sound": "雨声与撞击声骤然被水声吞没", "dramatic_function": "生死转折", "presentation_hint": "失重感→车头入水"}
+      ]
+    },
+    {
+      "scene_id": "Scene 2",
+      "source_index": ["Ch1 §22-32"],
+      "location": "雨夜河（异界湖）水下",
+      "time": "夜",
+      "characters": ["伊娃", "神秘救命男子"],
+      "scene_goal": "逃出下沉的车、游回水面活下去",
+      "conflict_resistance": "车门难开、冰冷刺骨的水、体力耗尽、右腿剧痛",
+      "emotion_arc": "求生急迫 → 极寒痛苦 → 力竭绝望 → 一线被救",
+      "duration_target_sec": 30,
+      "beats": [
+        {"beat_id": "1", "source_index": "Ch1 §22-24", "action": "水灌进车厢，她奋力推开车门游向上方光亮", "dialogue": "(内心)我是好泳者，我可以的……", "dramatic_function": "建立求生意志", "presentation_hint": "上方水面微光、气泡"},
+        {"beat_id": "2", "source_index": "Ch1 §25-28", "action": "寒冷如针刺入全身，右腿一阵剧痛，她张口呛水", "dialogue": "(内心)太冷了……像针扎进皮肤……", "dramatic_function": "逼近死亡", "presentation_hint": "冷色调、动作变慢"},
+        {"beat_id": "3", "source_index": "Ch1 §31-32", "action": "力气流失下沉，闭眼前一只手抓住她的腰", "dialogue": "(内心)神啊，我不想死！我还想活！给我一次机会！", "dramatic_function": "命定恩人钩子", "presentation_hint": "下沉→一只手入画抓腰→画面转白"}
+      ]
+    },
+    {
+      "scene_id": "Scene 3",
+      "source_index": ["Ch1 §35-59"],
+      "location": "陌生小湖岸边",
+      "time": "夜",
+      "characters": ["伊娃", "神秘救命男子"],
+      "scene_goal": "搞清刚才发生了什么、这是哪里",
+      "conflict_resistance": "环境完全陌生、对方说这是湖不是河、想不起自己的名字",
+      "emotion_arc": "呛醒的庆幸 → 错愕困惑 → 恐慌",
+      "duration_target_sec": 35,
+      "beats": [
+        {"beat_id": "1", "source_index": "Ch1 §36-39", "action": "被人侧过身，大口呛出湖水，贪婪地喘息；一个高大黑影立于身后", "dialogue": "男子：Well, that was stupid! Why did you try to kill yourself? / 她：我没想自杀！我的车冲下了桥！", "dramatic_function": "建立救命者 + 首次错位", "presentation_hint": "只见黑影轮廓，不露脸；湖岸夜色"},
+        {"beat_id": "2", "source_index": "Ch1 §40-43", "action": "她环顾四周：没有桥、没有城镇灯光，只有小湖", "dialogue": "男子：There are no bridges across this lake, blondie. / 她（喃喃）：湖？这是河啊……", "dramatic_function": "强化这不是原来的世界", "presentation_hint": "空旷陌生湖岸、无现代痕迹"},
+        {"beat_id": "3", "source_index": "Ch1 §45-49", "action": "他扔来一块陌生质地的毯子；她想报出名字却发现记不起来", "dialogue": "男子：What is your name? Where do you live? / 她：My name is—（卡住）(内心)为什么……我想不起自己的名字？", "dramatic_function": "立失忆谜", "presentation_hint": "毯子的异质感；她张口又噤声"}
+      ]
+    },
+    {
+      "scene_id": "Scene 4",
+      "source_index": ["Ch1 §53-59"],
+      "location": "陌生小湖岸边",
+      "time": "夜",
+      "characters": ["伊娃", "神秘救命男子"],
+      "scene_goal": "她想压下失控的恐慌",
+      "conflict_resistance": "恐慌吞没理智、身体里未知的力量失控",
+      "emotion_arc": "恐慌决堤 → 力量爆发 → 双双震惊",
+      "duration_target_sec": 20,
+      "beats": [
+        {"beat_id": "1", "source_index": "Ch1 §53-54", "action": "泪水涌出，她呼吸困难、闭眼陷入恐慌", "dialogue": "她：我到底怎么了……", "dramatic_function": "情绪临界", "presentation_hint": "呼吸急促、画面收窄"},
+        {"beat_id": "2", "source_index": "Ch1 §55-56", "action": "睁眼——她正坐在一圈巨大尖锐的真冰中！一根冰刺几乎抵到男子", "dialogue": "男子：Easy there!", "dramatic_function": "冰设定首次显形", "presentation_hint": "冰刺破地环身、寒雾；男子后退半步"},
+        {"beat_id": "3", "source_index": "Ch1 §57-59", "action": "男子低笑，说她是水元素法师；她茫然看着自己的手", "dialogue": "男子：Why didn't you tell me you are a mage? And one with the water element at that! / 她（内心）：法师？他在开玩笑吧……", "dramatic_function": "抛出她是法师信息", "presentation_hint": "她盯着自己掌心、冰雾未散"}
+      ]
+    },
+    {
+      "scene_id": "Scene 5",
+      "source_index": ["Ch1 §60-78"],
+      "location": "陌生小湖岸边",
+      "time": "夜",
+      "characters": ["伊娃", "神秘救命男子", "伊丽莎", "凯"],
+      "scene_goal": "她被动接收新身份信息；活下去",
+      "conflict_resistance": "被唤陌生的名字、被冷待、被当作不是家人的累赘、恩人即将消失",
+      "emotion_arc": "更深的错愕 → 被冷待的委屈 → 见证奇迹的震撼 → 昏厥",
+      "duration_target_sec": 40,
+      "beats": [
+        {"beat_id": "1", "source_index": "Ch1 §60-63", "action": "远处Freya! Freya!的呼喊；一男两女（中世纪装扮）跑来；男子迅速拉起兜帽", "dialogue": "伊丽莎：There you are! Did you find the ring?", "dramatic_function": "引入博福特兄妹", "presentation_hint": "火把光、中世纪服饰；男子藏脸"},
+        {"beat_id": "2", "source_index": "Ch1 §66-72", "action": "男子冷斥博福特家怠慢，扔出一袋金币撂下狠话护她", "dialogue": "男子：Here's enough coins to treat her for a year! ... if I hear that one strand of Freya Winter's silver hair falls down, I'll make sure everyone knows the deeds of the Beaufort family.", "dramatic_function": "神秘恩人护她", "presentation_hint": "金币落地脆响；博福特兄妹脸色变"},
+        {"beat_id": "3", "source_index": "Ch1 §73-75", "action": "她低头看自己：陌生蓝裙、雪白长发；拽了一下——是真的，会痛", "dialogue": "她（内心）：棕发的我……为什么现在满头银白？这具身体……不是我的。", "dramatic_function": "确认换了身体", "presentation_hint": "低头看手→拨弄雪白发丝→轻拽微痛"},
+        {"beat_id": "4", "source_index": "Ch1 §76-78", "action": "男子留下最后一句，抬手开启火焰漏斗传送门离去，只余烟味；她随即昏厥", "dialogue": "男子：Good luck, Freya! In that family, you are going to need it!", "dramatic_function": "神秘恩人离场", "presentation_hint": "巨大火焰漏斗门→消失→一缕青烟"}
+      ]
+    },
+    {
+      "scene_id": "Scene 6",
+      "source_index": ["Ch1 结（改编新增）"],
+      "location": "湖岸（意识模糊的主观）",
+      "time": "夜",
+      "characters": ["伊娃"],
+      "scene_goal": "本集情绪落点",
+      "conflict_resistance": "意识涣散",
+      "emotion_arc": "坠入黑暗 → 一寒",
+      "duration_target_sec": 10,
+      "beats": [
+        {"beat_id": "1", "source_index": "改编新增", "action": "倒地前，她无意识攥紧的手心，悄然凝出一层薄薄的冰晶，随即黑场", "dialogue": "(内心/气声)至少……我还活着。", "dramatic_function": "集尾钩子", "presentation_hint": "掌心冰晶特写→细微冰裂声→黑场"}
+      ]
+    }
+  ]
+}
