@@ -20,6 +20,14 @@ class Chapter:
     text: str
 
 
+def novel_preamble(novel_text: str, *, max_chars: int = 2000) -> str:
+    """Text before the first 'Chapter N' header (title, author, blurb)."""
+    match = CHAPTER_RE.search(novel_text)
+    if not match:
+        return ""
+    return novel_text[: match.start()].strip()[:max_chars]
+
+
 def split_chapters(novel_text: str) -> list[Chapter]:
     matches = list(CHAPTER_RE.finditer(novel_text))
     if not matches:

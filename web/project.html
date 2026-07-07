@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=20260706e">
+  <link rel="stylesheet" href="styles.css?v=20260706k">
 </head>
 <body>
   <canvas id="frost-canvas" aria-hidden="true"></canvas>
@@ -37,7 +37,8 @@
       </div>
       <div class="toolbar-actions">
         <button type="button" class="btn btn-sm btn-ghost" id="btn-refresh">刷新状态</button>
-        <button type="button" class="btn btn-sm btn-primary" id="btn-run">开始精编（S0→S5）</button>
+        <button type="button" class="btn btn-sm btn-stop" id="btn-cancel" disabled>停止精编</button>
+        <button type="button" class="btn btn-sm btn-primary" id="btn-run">开始精编（P0→S5）</button>
       </div>
     </div>
   </div>
@@ -65,12 +66,16 @@
       <ol class="progress-steps" id="progress-steps" aria-label="精编管线步骤">
         <li class="progress-step" data-phase="index"><span class="progress-step-mark"></span><span class="progress-step-name">章节索引</span></li>
         <li class="progress-step" data-phase="stage0"><span class="progress-step-mark"></span><span class="progress-step-name">上游准备</span></li>
+        <li class="progress-step" data-phase="P0"><span class="progress-step-mark"></span><span class="progress-step-name">P0 口味校准</span></li>
+        <li class="progress-step" data-phase="P1"><span class="progress-step-mark"></span><span class="progress-step-name">P1 素材拆解</span></li>
         <li class="progress-step" data-phase="S0"><span class="progress-step-mark"></span><span class="progress-step-name">S0 故事引擎</span></li>
+        <li class="progress-step" data-phase="P3"><span class="progress-step-mark"></span><span class="progress-step-name">P3 创作策略</span></li>
         <li class="progress-step" data-phase="S1"><span class="progress-step-mark"></span><span class="progress-step-name">S1 系列定位</span></li>
         <li class="progress-step" data-phase="S2"><span class="progress-step-mark"></span><span class="progress-step-name">S2 季图谱</span></li>
         <li class="progress-step" data-phase="S3"><span class="progress-step-mark"></span><span class="progress-step-name">S3 分集清单</span></li>
         <li class="progress-step" data-phase="S4/S5"><span class="progress-step-mark"></span><span class="progress-step-name">S4/S5 剧本</span></li>
         <li class="progress-step" data-phase="fidelity"><span class="progress-step-mark"></span><span class="progress-step-name">忠实度审计</span></li>
+        <li class="progress-step" data-phase="P6"><span class="progress-step-mark"></span><span class="progress-step-name">P6 试播观感</span></li>
         <li class="progress-step" data-phase="done"><span class="progress-step-mark"></span><span class="progress-step-name">全部完成</span></li>
       </ol>
 
@@ -114,6 +119,26 @@
     </div>
   </section>
 
+  <section class="decision-queue" id="decision-queue" hidden aria-live="polite">
+    <div class="decision-queue-inner">
+      <header class="decision-queue-head">
+        <p class="decision-queue-eyebrow">改编决策 · 待拍板</p>
+        <h2 class="decision-queue-title" id="decision-queue-title">结构取舍</h2>
+        <p class="decision-queue-count" id="decision-queue-count"></p>
+      </header>
+      <div class="decision-queue-card" id="decision-queue-card">
+        <p class="decision-queue-question" id="decision-question"></p>
+        <p class="decision-queue-rec" id="decision-recommendation"></p>
+        <details class="decision-queue-evidence" id="decision-evidence-wrap">
+          <summary>展开证据链</summary>
+          <dl id="decision-evidence"></dl>
+        </details>
+        <div class="decision-queue-options" id="decision-options" role="group" aria-label="决策选项"></div>
+      </div>
+      <ul class="decision-queue-done" id="decision-queue-done" hidden></ul>
+    </div>
+  </section>
+
   <main>
     <section id="overview" class="hero">
       <div class="hero-frame">
@@ -135,7 +160,7 @@
     <section id="pipeline" class="pipeline-section">
       <div class="section-head">
         <h2>改编管线</h2>
-        <p>S0–S5 六阶段精编流程 · 结构化产出可校验、可局部重跑</p>
+        <p>P0–S5 + P6 全流程 · 结构化产出可校验、可局部重跑</p>
       </div>
       <div class="pipeline-track" id="pipeline-track"></div>
       <div class="engines-grid" id="engines-grid"></div>
@@ -175,6 +200,6 @@
   </footer>
 
   <script src="vendor/marked.min.js"></script>
-  <script src="project.js?v=20260706e"></script>
+  <script src="project.js?v=20260706k"></script>
 </body>
 </html>

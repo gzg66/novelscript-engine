@@ -13,6 +13,8 @@ MUST_KEEP_HINTS: dict[str, list[str]] = {
     "教授": ["教授", "天赋", "测试", "罕见"],
     "冰封": ["冰", "客厅", "冰痕", "冰封"],
     "冻": ["冻", "冰", "凯"],
+    "晚宴": ["晚宴", "dinner", "托伊", "troy", "餐桌", "座位"],
+    "舞会": ["舞会", "ball", "共舞", "dance", "舞池"],
     "丝带": ["丝带", "ribbon", "骑士", "比武"],
     "igloo": ["igloo", "冰屋", "冰门"],
     "十二箱": ["十二", "礼物", "箱"],
@@ -52,12 +54,20 @@ def map_must_keep_to_episodes(
     for scene in must_keep:
         item = dict(scene)
         chapters = set(scene.get("source_chapters") or [])
+        name = scene.get("name", "")
         best_ep = None
-        best_overlap = 0
+        best_score = -1
         for ep in episodes:
-            overlap = len(chapters & set(ep.get("source_chapters") or []))
-            if overlap > best_overlap:
-                best_overlap = overlap
+            ep_chs = set(ep.get("source_chapters") or [])
+            overlap = len(chapters & ep_chs)
+            if overlap == 0:
+                continue
+            logline = ep.get("logline", "") + ep.get("core_conflict", "")
+            name_bonus = sum(1 for token in _name_tokens(name) if token in logline)
+            tight_bonus = max(0, 6 - len(ep_chs))
+            score = overlap * 10 + name_bonus * 3 + tight_bonus
+            if score > best_score:
+                best_score = score
                 best_ep = ep["episode_id"]
         if best_ep:
             item["episode_id"] = best_ep

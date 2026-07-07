@@ -18,6 +18,81 @@ KEY_DIALOGUE_WHITELIST = [
     "Why didn't you tell me you are a mage",
 ]
 
+_SCENE_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "source_index": ("来源索引", "source_index", "source index"),
+    "location": ("地点/时间", "地点时间", "location", "地点"),
+    "characters": ("出场角色", "characters", "角色"),
+    "scene_goal": ("场景目标", "scene_goal", "scene goal"),
+    "conflict_resistance": ("冲突/阻力", "冲突阻力", "conflict", "阻力"),
+    "emotion_arc": ("情绪弧线", "emotion_arc", "情绪"),
+    "value_change": ("场景价值变化", "价值变化", "value_change"),
+    "duration_target_sec": ("场次时长目标", "duration_target", "场次时长", "时长"),
+}
+
+
+def _normalize_meta_line(line: str) -> tuple[str, str] | None:
+    stripped = line.strip()
+    if not stripped.startswith(("-", "*", "•")):
+        return None
+    body = re.sub(r"^[-*•]\s*", "", stripped)
+    if "：" in body:
+        key, value = body.split("：", 1)
+    elif ":" in body:
+        key, value = body.split(":", 1)
+    else:
+        return None
+    key = key.strip().strip("*").lower().replace("_", " ")
+    value = value.strip().strip("*")
+    return key, value
+
+
+def _assign_scene_field(scene: dict[str, Any], key: str, value: str) -> None:
+    normalized = key.lower().replace("_", " ")
+    for field, aliases in _SCENE_FIELD_ALIASES.items():
+        if any(alias.lower() in normalized for alias in aliases):
+            if field == "characters":
+                scene["characters"] = [c.strip() for c in re.split(r"[、,，/]", value) if c.strip()]
+            elif field == "duration_target_sec":
+                dur = re.search(r"(\d+)", value)
+                if dur:
+                    scene["duration_target_sec"] = int(dur.group(1))
+            elif field == "location":
+                parts = [p.strip() for p in re.split(r"[/／]", value) if p.strip()]
+                scene["location"] = parts[-1] if parts else value
+                if len(parts) > 1 and not scene.get("time"):
+                    scene["time"] = parts[0]
+            elif field == "source_index":
+                refs = re.findall(r"Ch\d+\s*§?\d*[-\d]*", value, re.I) or re.findall(r"§\d+[-\d]*", value)
+                scene["source_index"] = refs if refs else [value]
+            else:
+                scene[field] = value
+            return
+
+
+def _parse_beat_row(cells: list[str]) -> dict[str, Any] | None:
+    if len(cells) < 4:
+        return None
+    beat_match = re.search(r"(\d+)", cells[0])
+    if not beat_match:
+        return None
+    beat_id = beat_match.group(1)
+    action = cells[2] if len(cells) > 2 else ""
+    dialogue = cells[3] if len(cells) > 3 else ""
+    dramatic_function = cells[4] if len(cells) > 4 else ""
+    presentation_hint = cells[5] if len(cells) > 5 else ""
+    beat: dict[str, Any] = {
+        "beat_id": beat_id,
+        "source_index": cells[1] if len(cells) > 1 else "",
+        "action": action,
+        "dialogue": dialogue,
+        "dramatic_function": dramatic_function,
+        "presentation_hint": presentation_hint,
+    }
+    if "(雨声" in dialogue or "声音" in dialogue or "背景音" in dialogue:
+        beat["sound"] = dialogue.strip("()（）")
+        beat["dialogue"] = ""
+    return beat
+
 
 def parse_script_md(md_text: str, *, episode_id: str = "S1E01", global_episode_id: str = "EP001") -> dict[str, Any]:
     scenes: list[dict[str, Any]] = []
@@ -31,11 +106,19 @@ def parse_script_md(md_text: str, *, episode_id: str = "S1E01", global_episode_i
         if line.startswith("**集尾钩子**"):
             cliffhanger = line.split("：", 1)[-1].strip().strip("*")
 
+    for line in md_text.splitlines():
+        if line.startswith("**集情**"):
+            logline = line.split("：", 1)[-1].strip().strip("*")
+        if line.startswith("**集尾钩子**"):
+            cliffhanger = line.split("：", 1)[-1].strip().strip("*")
+        if "hook_landing" in line.lower() or "集尾悬念" in line:
+            cliffhanger = cliffhanger or line.split("：", 1)[-1].split(":", 1)[-1].strip().strip("*")
+
     current_scene: dict[str, Any] | None = None
     in_beat_table = False
 
     for line in md_text.splitlines():
-        scene_match = re.match(r"^##\s+Scene\s+(\d+)", line)
+        scene_match = re.match(r"^##\s+Scene\s+(\d+)", line, re.I)
         if scene_match:
             if current_scene:
                 scenes.append(current_scene)
@@ -57,56 +140,31 @@ def parse_script_md(md_text: str, *, episode_id: str = "S1E01", global_episode_i
         if current_scene is None:
             continue
 
-        if line.strip().startswith("- 来源索引"):
-            refs = re.findall(r"Ch\d+\s*§?\d*[-\d]*", line) or re.findall(r"§\d+[-\d]*", line)
-            current_scene["source_index"] = refs if refs else [line.split("：", 1)[-1].strip()]
-            for m in re.finditer(r"Ch(\d+)", line, re.I):
-                source_chapters.append(int(m.group(1)))
-        elif line.strip().startswith("- 地点/时间"):
-            loc_time = line.split("：", 1)[-1].strip()
-            parts = [p.strip() for p in loc_time.split("/")]
-            current_scene["location"] = parts[-1] if parts else loc_time
-            current_scene["time"] = parts[0] if len(parts) > 1 else "夜"
-        elif line.strip().startswith("- 出场角色"):
-            chars = line.split("：", 1)[-1].strip()
-            current_scene["characters"] = [c.strip() for c in re.split(r"[、,，]", chars) if c.strip()]
-        elif line.strip().startswith("- 场景目标"):
-            current_scene["scene_goal"] = line.split("：", 1)[-1].strip()
-        elif line.strip().startswith("- 冲突/阻力"):
-            current_scene["conflict_resistance"] = line.split("：", 1)[-1].strip()
-        elif line.strip().startswith("- 情绪弧线"):
-            current_scene["emotion_arc"] = line.split("：", 1)[-1].strip()
-        elif line.strip().startswith("- 场次时长目标"):
-            dur = re.search(r"(\d+)", line)
-            if dur:
-                current_scene["duration_target_sec"] = int(dur.group(1))
-        elif line.strip().startswith("| Beat"):
+        meta = _normalize_meta_line(line)
+        if meta:
+            _assign_scene_field(current_scene, meta[0], meta[1])
+            in_beat_table = False
+            continue
+
+        if re.match(r"^\|\s*Beat\s*\|", line, re.I):
             in_beat_table = True
-        elif in_beat_table and line.strip().startswith("|"):
-            if re.match(r"^\|[-\s|]+\|$", line):
+            continue
+        if in_beat_table and line.strip().startswith("|"):
+            if re.match(r"^\|[-\s|:]+\|$", line):
                 continue
             cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            if len(cells) < 6:
-                continue
-            try:
-                beat_id = str(int(cells[0]))
-            except ValueError:
-                continue
-            beat = {
-                "beat_id": beat_id,
-                "source_index": cells[1],
-                "action": cells[2],
-                "dialogue": cells[3] if "(雨声" not in cells[3] else "",
-                "dramatic_function": cells[4],
-                "presentation_hint": cells[5],
-            }
-            if "(雨声" in cells[3] or "声音" in cells[3]:
-                beat["sound"] = cells[3].strip("()")
-                beat["dialogue"] = ""
-            current_scene["beats"].append(beat)
+            beat = _parse_beat_row(cells)
+            if beat:
+                current_scene["beats"].append(beat)
+                for m in re.finditer(r"Ch(\d+)", beat.get("source_index", ""), re.I):
+                    source_chapters.append(int(m.group(1)))
 
     if current_scene:
         scenes.append(current_scene)
+
+    for scene in scenes:
+        for m in re.finditer(r"Ch(\d+)", " ".join(scene.get("source_index") or []), re.I):
+            source_chapters.append(int(m.group(1)))
 
     return {
         "episode_id": episode_id,
@@ -140,6 +198,8 @@ def check_s5_script(
                 report.add_issue(f"{scene.get('scene_id')}: missing {field}")
         if not scene.get("source_index"):
             report.add_issue(f"{scene.get('scene_id')}: missing source_index")
+        if not scene.get("value_change") and "→" not in str(scene.get("emotion_arc", "")):
+            report.add_warning(f"{scene.get('scene_id')}: missing scene value change")
 
         for beat in scene.get("beats") or []:
             text_blob = f"{beat.get('action', '')} {beat.get('dialogue', '')} {beat.get('sound', '')}"

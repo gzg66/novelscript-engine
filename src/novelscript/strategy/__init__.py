@@ -26,16 +26,19 @@ class StandardRefinementStrategy:
         return {"primary": "novel.txt", "rights_basis": "required"}
 
     def index_stages(self) -> list[str]:
-        return ["chapters", "source_lines", "must_keep_scenes"]
+        return ["chapters", "source_lines", "must_keep_scenes", "source_cards"]
 
     def s0_stages(self) -> list[str]:
-        return ["adaptation_brief", "story_engine"]
+        return ["project_preference", "adaptation_brief", "source_cards", "story_engine", "adaptation_strategy"]
 
     def macro_stages(self) -> list[str]:
         return ["series_premise", "character_bible", "season_map"]
 
     def micro_stages(self) -> list[str]:
-        return ["episode_list", "beat_sheet", "script"]
+        return ["episode_list", "beat_sheet", "script", "pilot_review"]
+
+    def pre_stages(self) -> list[str]:
+        return ["P0", "P1", "P3", "P6"]
 
 
 class DeepAdaptationStrategy:

@@ -12,19 +12,25 @@
   let lastActivityKey = "";
   let autostartTriggered = false;
   let pendingGate = null;
+  let decisionQueue = [];
 
-  const PHASE_ORDER = ["index", "stage0", "S0", "S1", "S2", "S3", "S4/S5", "fidelity", "done"];
+  const PHASE_ORDER = ["index", "stage0", "P0", "P1", "S0", "brief", "P3", "S1", "S2", "S3", "S4/S5", "fidelity", "P6", "done"];
 
   const PHASE_LABELS = {
     idle: "等待启动",
     index: "章节索引",
     stage0: "上游准备",
+    P0: "P0 口味校准",
+    P1: "P1 素材拆解",
     S0: "S0 故事引擎",
+    brief: "改编简报",
+    P3: "P3 创作策略",
     S1: "S1 系列定位",
     S2: "S2 季图谱",
     S3: "S3 分集清单",
     "S4/S5": "S4/S5 剧本精编",
     fidelity: "忠实度审计",
+    P6: "P6 试播观感卡",
     done: "全部完成",
   };
 
@@ -59,6 +65,7 @@
     initFrostCanvas();
     bindToolbar();
     bindApproval();
+    bindDecisionQueue();
     await refreshStatus(true);
     schedulePoll();
 
@@ -167,6 +174,120 @@
     passBtn.textContent = resumeOnly ? "继续精编" : "审核通过，继续精编";
   }
 
+  function renderDecisionQueue(status) {
+    const panel = $("#decision-queue");
+    if (!panel) return;
+    const items = status?.decisionQueue || [];
+    decisionQueue = items;
+
+    const pending = items.filter((d) => d.status !== "resolved");
+    const resolved = items.filter((d) => d.status === "resolved");
+
+    if (!items.length) {
+      panel.hidden = true;
+      return;
+    }
+
+    panel.hidden = false;
+    $("#decision-queue-count").textContent =
+      pending.length > 0
+        ? `还有 ${pending.length} 个结构问题待确认（已拍板 ${resolved.length}）`
+        : `全部 ${resolved.length} 项已拍板`;
+
+    const doneEl = $("#decision-queue-done");
+    if (resolved.length) {
+      doneEl.hidden = false;
+      doneEl.innerHTML = resolved
+        .map(
+          (d) =>
+            `<li><strong>${escapeHtml(d.id)}</strong>：${escapeHtml(d.question || "")} → ${escapeHtml(d.resolved_choice || "")}</li>`
+        )
+        .join("");
+    } else {
+      doneEl.hidden = true;
+      doneEl.innerHTML = "";
+    }
+
+    const card = $("#decision-queue-card");
+    if (!pending.length) {
+      card.hidden = true;
+      $("#decision-queue-title").textContent = "决策已完成";
+      return;
+    }
+
+    card.hidden = false;
+    const current = pending[0];
+    $("#decision-queue-title").textContent = current.id?.replace(/^dq_/, "").replace(/_/g, " ") || "结构取舍";
+    $("#decision-question").textContent = current.question || "";
+    $("#decision-recommendation").textContent = current.recommendation || "";
+
+    const evidence = current.evidence || {};
+    const dl = $("#decision-evidence");
+    const labels = {
+      structural: "结构依据",
+      textual: "文本依据",
+      dramatic: "戏剧依据",
+      risk: "风险依据",
+    };
+    dl.innerHTML = Object.entries(labels)
+      .filter(([key]) => evidence[key])
+      .map(([key, label]) => {
+        const val = evidence[key];
+        const text = typeof val === "object" ? JSON.stringify(val, null, 0) : String(val);
+        return `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(text)}</dd>`;
+      })
+      .join("");
+    $("#decision-evidence-wrap").open = false;
+
+    const optionsEl = $("#decision-options");
+    const rec = current.recommendation || "";
+    optionsEl.innerHTML = (current.options || [])
+      .map((opt, idx) => {
+        const primary =
+          rec && (opt.includes(rec) || rec.includes(opt) || (idx === 1 && current.options.length > 1));
+        return `<button type="button" class="btn-option${primary ? " btn-option--primary" : ""}" data-id="${escapeHtml(current.id)}" data-choice="${escapeHtml(opt)}">${escapeHtml(opt)}</button>`;
+      })
+      .join("");
+  }
+
+  async function resolveDecision(decisionId, choice, btn) {
+    if (!decisionId || !choice) return;
+    const buttons = $$(".btn-option", $("#decision-options"));
+    buttons.forEach((b) => {
+      b.disabled = true;
+    });
+    if (btn) btn.textContent = "已记录…";
+    try {
+      const res = await fetch(
+        `/api/projects/${encodeURIComponent(slug)}/decisions/${encodeURIComponent(decisionId)}/resolve`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ choice }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "拍板失败");
+      await refreshStatus(true);
+    } catch (err) {
+      buttons.forEach((b) => {
+        b.disabled = false;
+      });
+      if (btn) btn.textContent = choice;
+      $("#status-text").textContent = err.message || "拍板失败";
+    }
+  }
+
+  function bindDecisionQueue() {
+    const optionsEl = $("#decision-options");
+    if (!optionsEl) return;
+    optionsEl.addEventListener("click", (ev) => {
+      const btn = ev.target.closest(".btn-option");
+      if (!btn || btn.disabled) return;
+      resolveDecision(btn.dataset.id, btn.dataset.choice, btn);
+    });
+  }
+
   function renderProgressPanel(status) {
     const panel = $("#progress-panel");
     const running = status.running && !status.pendingGate;
@@ -192,8 +313,8 @@
     if (!running && !status.pendingGate && phase === "idle") {
       const ch = manifest?.project?.chapters;
       message = ch
-        ? `章节索引已完成（${ch} 章）· 点击「开始精编」启动 S0→S5 全流程`
-        : "项目已创建 · 点击「开始精编」启动 S0→S5 全流程";
+        ? `章节索引已完成（${ch} 章）· 点击「开始精编」启动 P0→S5 全流程`
+        : "项目已创建 · 点击「开始精编」启动 P0→S5 全流程";
     }
     $("#progress-message").textContent = message;
 
@@ -517,8 +638,14 @@
   function setRunningState(running) {
     pipelineRunning = running;
     const btn = $("#btn-run");
+    const cancelBtn = $("#btn-cancel");
     btn.disabled = running;
-    btn.textContent = running ? "精编运行中…" : "开始精编（S0→S5）";
+    btn.textContent = running ? "精编运行中…" : "开始精编（P0→S5）";
+    if (cancelBtn) {
+      cancelBtn.disabled = !running;
+      cancelBtn.setAttribute("aria-disabled", running ? "false" : "true");
+      cancelBtn.textContent = running ? "停止精编" : "停止精编";
+    }
     $$(".stage-rerun").forEach((b) => {
       b.disabled = running;
     });
@@ -545,6 +672,7 @@
 
       renderProgressPanel(status);
       renderApprovalGate(status);
+      renderDecisionQueue(status);
       renderHero(stageCounts);
 
       if (status.running) {
@@ -564,10 +692,14 @@
       } else {
         dot.className = "status-dot status-dot--idle";
         const phase = effectivePhase(status);
-        text.textContent =
-          phase === "done" && stageCounts.done >= stageCounts.total
-            ? `已完成 · ${stageCounts.done}/${stageCounts.total} 阶段`
-            : `就绪 · ${stageCounts.done}/${stageCounts.total} 阶段完成`;
+        if (status.message === "用户已中断精编") {
+          text.textContent = "已中断 · 可点击「开始精编」继续";
+        } else {
+          text.textContent =
+            phase === "done" && stageCounts.done >= stageCounts.total
+              ? `已完成 · ${stageCounts.done}/${stageCounts.total} 阶段`
+              : `就绪 · ${stageCounts.done}/${stageCounts.total} 阶段完成`;
+        }
         setRunningState(false);
         renderPipeline(null);
         renderDocSidebar();
@@ -601,6 +733,36 @@
       btn.disabled = false;
       btn.textContent = "审核通过，继续精编";
       $("#status-text").textContent = err.message || "批准失败";
+    }
+  }
+
+  async function cancelPipeline() {
+    const btn = $("#btn-cancel");
+    if (!pipelineRunning || !btn || btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "正在停止…";
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/cancel`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "停止失败");
+      if (data.status === "stopped") {
+        setRunningState(false);
+        $("#status-text").textContent = "已停止精编";
+      } else {
+        $("#status-text").textContent = "正在停止精编…";
+      }
+      schedulePoll();
+      let attempts = 0;
+      while (attempts < 20) {
+        await new Promise((r) => setTimeout(r, 500));
+        await refreshStatus(true);
+        if (!pipelineRunning) break;
+        attempts += 1;
+      }
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "停止精编";
+      $("#status-text").textContent = err.message || "停止失败";
     }
   }
 
@@ -661,6 +823,7 @@
   function bindToolbar() {
     $("#btn-refresh").addEventListener("click", () => refreshStatus(true));
     $("#btn-run").addEventListener("click", runPipeline);
+    $("#btn-cancel")?.addEventListener("click", cancelPipeline);
   }
 
   function initFrostCanvas() {

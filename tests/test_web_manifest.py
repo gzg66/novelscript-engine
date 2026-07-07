@@ -63,6 +63,22 @@ def test_pipeline_status_exposes_pending_gate(tmp_path: Path) -> None:
     assert status["pendingGate"] is not None
     assert status["pendingGate"]["gate"] == "S2"
     assert status["message"] == status["pendingGate"]["message"]
+    assert "decisionQueue" in status
+
+
+def test_pipeline_status_decision_queue(tmp_path: Path) -> None:
+    from novelscript.audit.decision_log import save_decision_queue
+
+    novel = PROJECT_ROOT / "input" / "novel.txt"
+    project = tmp_path / "status-dq"
+    ensure_project(novel, project_root=project)
+    save_decision_queue(
+        project / "audit",
+        [{"id": "dq_x", "question": "test?", "status": "pending", "options": ["A"]}],
+    )
+    status = pipeline_status(project)
+    assert len(status["decisionQueue"]) == 1
+    assert status["decisionQueue"][0]["id"] == "dq_x"
 
 
 def test_s3_collects_season_episode_lists(tmp_path: Path) -> None:
@@ -81,3 +97,11 @@ def test_s3_collects_season_episode_lists(tmp_path: Path) -> None:
     s3 = next(s for s in manifest["stages"] if s["id"] == "S3")
     assert s3["status"] == "partial"
     assert len(s3["docs"]) == 1
+
+
+def test_build_manifest_includes_all_pipeline_stages(tmp_path: Path) -> None:
+    project = tmp_path / "all-stages"
+    project.mkdir()
+    manifest = build_manifest(project)
+    stage_ids = [s["id"] for s in manifest["stages"]]
+    assert stage_ids == ["P0", "stage0", "P1", "S0", "brief", "P3", "S1", "S2", "S3", "S4", "S5", "P6"]

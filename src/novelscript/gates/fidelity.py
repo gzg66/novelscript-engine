@@ -15,15 +15,19 @@ def run_fidelity_audit(
     scripts: dict[str, dict[str, Any]],
     season_id: str = "S1",
     min_engine_episodes: int = 3,
+    scope_episode_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     min_hits = min(min_engine_episodes, max(1, len(episodes) // 2)) if episodes else min_engine_episodes
     produced_ids = set(scripts.keys())
+    scope = set(scope_episode_ids or [])
     coverage = []
     for scene in must_keep:
         sid = scene.get("season_id")
         if sid and sid != season_id:
             continue
         ep_id = scene.get("episode_id")
+        if scope and ep_id and ep_id not in scope:
+            continue
         if ep_id and produced_ids and ep_id not in produced_ids:
             continue
         status = "mapped" if scene.get("scene_id") and scene.get("episode_id") else "missing"

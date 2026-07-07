@@ -6,7 +6,7 @@ from typing import Any
 from novelscript.checkers.base import CheckerReport
 
 
-def parse_episode_list_md(md_text: str) -> list[dict[str, Any]]:
+def parse_episode_list_md(md_text: str, *, season_id: str = "S1") -> list[dict[str, Any]]:
     episodes: list[dict[str, Any]] = []
     for line in md_text.splitlines():
         if not line.strip().startswith("|"):
@@ -24,7 +24,7 @@ def parse_episode_list_md(md_text: str) -> list[dict[str, Any]]:
         ep_num = int(ep_match.group(1))
         episodes.append(
             {
-                "episode_id": f"S1E{ep_num:02d}",
+                "episode_id": f"{season_id}E{ep_num:02d}",
                 "global_episode_id": f"EP{ep_num:03d}",
                 "logline": cells[1],
                 "source_chapters": _parse_chapters(cells[2]),
@@ -58,6 +58,9 @@ def _infer_engines(text: str) -> list[str]:
     return engines[:2] if engines else ["逆袭"]
 
 
+_PASSIVE_CHOICE_RE = re.compile(r"被(救|发现|安排|逼|迫)|被迫|无意间发现")
+
+
 def check_s3_episode_list(
     episodes: list[dict[str, Any]],
     *,
@@ -88,6 +91,11 @@ def check_s3_episode_list(
         covered.update(chs)
         if not ep.get("serves_engines"):
             report.add_issue(f"{ep.get('episode_id')}: no engine hit", hard=False)
+        choice = str(ep.get("protagonist_choice") or "")
+        if choice and _PASSIVE_CHOICE_RE.search(choice):
+            report.add_issue(f"{ep.get('episode_id')}: passive protagonist choice", hard=False)
+        if choice and "不可逆" not in str(ep.get("logline", "")) + choice + str(ep.get("cliffhanger", "")):
+            report.add_warning(f"{ep.get('episode_id')}: no explicit irreversible change marker")
 
     if must_keep:
         season_set = set(season_chapters)

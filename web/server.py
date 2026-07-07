@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 import threading
 from http import HTTPStatus
@@ -13,13 +14,22 @@ ENGINE_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = Path(__file__).resolve().parent
 PROJECTS_DIR = ENGINE_ROOT / "projects"
 SRC_DIR = ENGINE_ROOT / "src"
-PORTAL_BUILD = "20260706e"
+PORTAL_BUILD = "20260706k"
 
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from novelscript.config import load_settings  # noqa: E402
 from novelscript.logging import setup_logging  # noqa: E402
+from novelscript.pipeline.cancel import (  # noqa: E402
+    PipelineCancelled,
+    acquire_run_lock,
+    clear_cancel,
+    is_pipeline_active,
+    mark_stopped,
+    release_run_lock,
+    request_cancel,
+)
 from novelscript.pipeline.context import init_project, load_project  # noqa: E402
 from novelscript.pipeline.orchestrator import Pipeline  # noqa: E402
 
@@ -34,6 +44,15 @@ def _manifest_api():
     import novelscript.web.manifest as manifest_mod
 
     return importlib.reload(manifest_mod)
+
+
+def _normalize_stage_id(stage: str) -> str:
+    """Align API/UI stage ids (brief, stage0) with manifest RUNNABLE_STAGE_IDS."""
+    s = stage.strip()
+    lower = s.lower()
+    if lower in ("stage0", "brief", "index"):
+        return lower
+    return s.upper()
 
 
 def _parse_multipart(body: bytes, content_type: str) -> dict[str, tuple[str | None, bytes]]:
@@ -139,8 +158,26 @@ def _create_project(upload_name: str, content: bytes, *, display_title: str = ""
     }
 
 
+def _project_is_running(slug: str, root: Path | None) -> bool:
+    if slug in _running:
+        return True
+    if root is not None and is_pipeline_active(root):
+        return True
+    return False
+
+
+def _enrich_running_item(item: dict, slug: str, root: Path, manifest_mod) -> None:
+    st = manifest_mod.pipeline_status(root)
+    item["running"] = True
+    item["phase"] = st.get("phase", "index")
+    item["message"] = st.get("message", "精编运行中…")
+    item["progress"] = st.get("progress", 0)
+
+
 def _run_pipeline(slug: str, *, through: str | None = "S5", from_stage: str | None = None, skip_llm: bool = False) -> None:
     import logging
+
+    from novelscript.progress import emit
 
     web_log = logging.getLogger("novelscript.web")
 
@@ -149,13 +186,18 @@ def _run_pipeline(slug: str, *, through: str | None = "S5", from_stage: str | No
             return
         _running.add(slug)
 
+    root: Path | None = None
     try:
         root = _project_root(slug)
         if root is None:
             return
+        clear_cancel(root)
+        acquire_run_lock(root, slug=slug)
         ctx = load_project(root)
         setup_logging(project_root=ctx.root)
         settings = load_settings()
+        web_log.info("Web pipeline session started slug=%s", slug)
+        logging.getLogger("pipeline").info("Web pipeline session started slug=%s", slug)
         pipe = Pipeline(ctx, settings)
         result = pipe.run(
             through=through or "S5",
@@ -163,13 +205,65 @@ def _run_pipeline(slug: str, *, through: str | None = "S5", from_stage: str | No
             skip_llm=skip_llm,
             auto_approve=False,
         )
-        if result.get("blocked"):
+        if result.get("cancelled"):
+            web_log.info("Pipeline cancelled for %s", slug)
+        elif result.get("blocked"):
             web_log.warning("Pipeline blocked for %s: %s", slug, result["blocked"])
+    except PipelineCancelled:
+        logging.getLogger("pipeline").info("⏹ 用户已中断精编")
+        logging.getLogger("pipeline").info("Web pipeline session ended slug=%s", slug)
+        emit("⏹ 用户已中断精编")
+        web_log.info("Pipeline cancelled for %s", slug)
+        if root is not None:
+            mark_stopped(root)
     except Exception as exc:
         web_log.exception("Pipeline failed for %s: %s", slug, exc)
     finally:
+        if root is not None:
+            release_run_lock(root)
+            try:
+                setup_logging(project_root=root)
+                web_log.info("Web pipeline session ended slug=%s", slug)
+                logging.getLogger("pipeline").info("Web pipeline session ended slug=%s", slug)
+            except Exception:
+                pass
         with _run_lock:
             _running.discard(slug)
+
+
+def _delete_project(slug: str) -> dict:
+    root = _project_root(slug)
+    if root is None:
+        return {"error": "project not found"}
+    if _project_is_running(slug, root):
+        return {"error": "项目正在精编，请先停止后再删除"}
+    shutil.rmtree(root)
+    with _run_lock:
+        _running.discard(slug)
+    return {"ok": True, "slug": slug}
+
+
+def _cancel_pipeline(slug: str) -> dict:
+    import logging
+
+    from novelscript.progress import emit
+
+    root = _project_root(slug)
+    if root is None:
+        return {"error": "project not found"}
+    request_cancel(root)
+    active = _project_is_running(slug, root)
+    setup_logging(project_root=root)
+    logging.getLogger("pipeline").info("⏹ 用户已中断精编")
+    logging.getLogger("pipeline").info("Web pipeline session ended slug=%s", slug)
+    emit("⏹ 用户已中断精编")
+    mark_stopped(root)
+    logging.getLogger("novelscript.web").info("Cancel requested for %s (active=%s)", slug, active)
+    return {
+        "status": "cancelling" if active else "stopped",
+        "slug": slug,
+        "running": active,
+    }
 
 
 def _approve_gate(slug: str, gate: str, *, resume: bool = True) -> dict:
@@ -199,10 +293,27 @@ def _approve_gate(slug: str, gate: str, *, resume: bool = True) -> dict:
 
 
 def _stage_output_paths(root: Path, stage: str) -> list[Path]:
-    stage = stage.upper()
+    stage = _normalize_stage_id(stage)
     paths: list[Path] = []
-    if stage == "S0":
+    if stage == "P0":
+        paths.append(root / "project_preference.md")
+    elif stage == "stage0":
+        paths.extend(
+            [
+                root / "input" / "stage0" / "outline.md",
+                root / "input" / "stage0" / "characters.md",
+            ]
+        )
+    elif stage == "P1":
+        paths.extend([root / "source_cards" / "index.md", root / "source_cards" / "index.json"])
+    elif stage == "P3":
+        paths.extend([root / "adaptation_strategy.md", root / "index" / "must_keep_scenes.json"])
+    elif stage == "P6":
+        paths.append(root / "audit" / "review_cards_S1_pilot.md")
+    elif stage == "S0":
         paths.extend([root / "S0_story_engine.md"])
+    elif stage == "brief":
+        paths.append(root / "S0_adaptation_brief.md")
     elif stage == "S1":
         paths.extend([root / "S1_series_premise.md", root / "S1_character_bible.md"])
     elif stage == "S2":
@@ -223,9 +334,35 @@ def _stage_output_paths(root: Path, stage: str) -> list[Path]:
     return paths
 
 
+def _ensure_web_stage_prereqs(
+    pipe: Pipeline,
+    ctx,
+    stage: str,
+) -> None:
+    from novelscript.pipeline.cancel import check_cancelled
+    from novelscript.stages.source import require_source_context
+
+    stage = _normalize_stage_id(stage)
+    # 单阶段重跑只校验前置产物，不触发 stage0 / 索引等上游阶段的再生成
+    if stage in ("P0", "stage0", "S0", "brief", "P6"):
+        return
+    check_cancelled(ctx.root)
+    if not (ctx.root / "index" / "chapters.json").exists():
+        pipe._run_index(rebuild_must_keep=False)
+    require_source_context(ctx)
+    if (ctx.root / "adaptation_strategy.md").exists() or (ctx.root / "S0_story_engine.md").exists():
+        pipe._rebuild_must_keep_index()
+
+
 def _run_stage(slug: str, stage: str, *, skip_llm: bool = False) -> None:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    from novelscript.stages.pre_pipeline import (
+        run_p0_preference,
+        run_p1_source_cards,
+        run_p3_strategy,
+        run_p6_pilot_review,
+    )
     from novelscript.stages import (
         run_s0_engine,
         run_s1_bible,
@@ -235,39 +372,72 @@ def _run_stage(slug: str, stage: str, *, skip_llm: bool = False) -> None:
         run_s4_beats,
         run_s5_script,
     )
-    from novelscript.stages.source import ensure_source_context
+    from novelscript.stages.source import require_source_context
+    from novelscript.stages.stage0_upstream import run_adaptation_brief, run_stage0_upstream
 
     with _run_lock:
         if slug in _running:
             return
         _running.add(slug)
 
+    root: Path | None = None
     try:
         root = _project_root(slug)
         if root is None:
             return
+        clear_cancel(root)
+        acquire_run_lock(root, slug=slug)
         ctx = load_project(root)
         setup_logging(project_root=ctx.root)
         settings = load_settings()
         pipe = Pipeline(ctx, settings)
-        stage = stage.upper()
+        stage = _normalize_stage_id(stage)
 
         for path in _stage_output_paths(root, stage):
             path.unlink(missing_ok=True)
 
-        if stage == "S0":
-            ensure_source_context(ctx, settings, skip_llm=skip_llm)
+        from novelscript.pipeline.stage_deps import invalidate_downstream
+
+        invalidate_downstream(ctx, stage)
+
+        _ensure_web_stage_prereqs(pipe, ctx, stage)
+
+        from novelscript.pipeline.cancel import PipelineCancelled, check_cancelled
+
+        if stage == "P0":
+            check_cancelled(root)
+            run_p0_preference(ctx, settings, skip_llm=skip_llm)
+        elif stage == "stage0":
+            check_cancelled(root)
+            run_stage0_upstream(ctx, settings)
+        elif stage == "P1":
+            check_cancelled(root)
+            run_p1_source_cards(ctx, settings, skip_llm=skip_llm)
+        elif stage == "S0":
+            check_cancelled(root)
+            require_source_context(ctx)
             run_s0_engine(ctx, settings)
+        elif stage == "brief":
+            check_cancelled(root)
+            require_source_context(ctx)
+            run_adaptation_brief(ctx, settings)
+        elif stage == "P3":
+            check_cancelled(root)
+            run_p3_strategy(ctx, settings, skip_llm=skip_llm)
+            pipe._rebuild_must_keep_index()
         elif stage == "S1":
+            check_cancelled(root)
             run_s1_premise(ctx, settings)
             run_s1_bible(ctx, settings)
         elif stage == "S2":
+            check_cancelled(root)
             run_s2_season_map(ctx, settings)
         elif stage == "S3":
             seasons = pipe._load_seasons()
             with ThreadPoolExecutor(max_workers=ctx.max_workers) as pool:
                 futures = [pool.submit(run_s3_episodes, ctx, s, settings) for s in seasons]
                 for fut in as_completed(futures):
+                    check_cancelled(root)
                     fut.result()
             pipe._update_must_keep_after_s3()
         elif stage in ("S4", "S5"):
@@ -285,13 +455,28 @@ def _run_stage(slug: str, stage: str, *, skip_llm: bool = False) -> None:
                         for ep in eps
                     }
                 for fut in as_completed(futures):
+                    check_cancelled(root)
                     fut.result()
             if stage == "S5":
                 for ep in (1, 2, 3):
                     script_path = ctx.episode_dir("S1", ep) / "script.json"
                     if script_path.exists():
                         pipe._update_must_keep_after_s5(json.loads(script_path.read_text(encoding="utf-8")))
+        elif stage == "P6":
+            check_cancelled(root)
+            run_p6_pilot_review(ctx, settings, skip_llm=skip_llm)
+    except PipelineCancelled:
+        import logging
+
+        from novelscript.progress import emit
+
+        if root is not None:
+            setup_logging(project_root=root)
+            emit("⏹ 用户已中断精编")
+        logging.getLogger("novelscript.web").info("Stage run cancelled for %s", slug)
     finally:
+        if root is not None:
+            release_run_lock(root)
         with _run_lock:
             _running.discard(slug)
 
@@ -327,16 +512,12 @@ class PortalHandler(SimpleHTTPRequestHandler):
             items = manifest_mod.list_projects(PROJECTS_DIR)
             for item in items:
                 slug = item["slug"]
-                if slug in _running:
-                    item["running"] = True
-                    root = _project_root(slug)
+                root = _project_root(slug)
+                if _project_is_running(slug, root):
                     if root is not None:
-                        st = manifest_mod.pipeline_status(root)
-                        item["phase"] = st.get("phase", "index")
-                        item["message"] = st.get("message", "精编运行中…")
-                        item["progress"] = st.get("progress", 0)
+                        _enrich_running_item(item, slug, root, manifest_mod)
                 else:
-                    item.setdefault("running", False)
+                    item["running"] = False
             return _json_response(self, HTTPStatus.OK, items)
 
         m = re.fullmatch(r"/api/projects/([a-z0-9-]+)/manifest", path)
@@ -352,7 +533,8 @@ class PortalHandler(SimpleHTTPRequestHandler):
             if root is None:
                 return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "project not found"})
             status = _manifest_api().pipeline_status(root)
-            status["running"] = status["running"] or m.group(1) in _running
+            slug = m.group(1)
+            status["running"] = _project_is_running(slug, root)
             return _json_response(self, HTTPStatus.OK, status)
 
         m = re.fullmatch(r"/api/projects/([a-z0-9-]+)/doc", path)
@@ -384,6 +566,21 @@ class PortalHandler(SimpleHTTPRequestHandler):
 
         return super().do_GET()
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        m = re.fullmatch(r"/api/projects/([a-z0-9-]+)", path)
+        if m:
+            result = _delete_project(m.group(1))
+            if result.get("error") == "project not found":
+                return _json_response(self, HTTPStatus.NOT_FOUND, result)
+            if result.get("error"):
+                return _json_response(self, HTTPStatus.CONFLICT, result)
+            return _json_response(self, HTTPStatus.OK, result)
+
+        return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
@@ -406,6 +603,36 @@ class PortalHandler(SimpleHTTPRequestHandler):
             result = _approve_gate(slug, gate, resume=resume)
             if result.get("error"):
                 return _json_response(self, HTTPStatus.BAD_REQUEST, result)
+            return _json_response(self, HTTPStatus.OK, result)
+
+        m = re.fullmatch(r"/api/projects/([a-z0-9-]+)/decisions/([a-z0-9_-]+)/resolve", path)
+        if m:
+            slug, decision_id = m.group(1), m.group(2)
+            root = _project_root(slug)
+            if root is None:
+                return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "project not found"})
+            body = _read_json_body(self)
+            choice = str(body.get("choice", "")).strip()
+            if not choice:
+                return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "choice is required"})
+            from novelscript.audit.decision_log import resolve_decision
+
+            resolved = resolve_decision(
+                root / "audit",
+                decision_id,
+                choice=choice,
+                note=str(body.get("note", "")),
+            )
+            if resolved is None:
+                return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "decision not found"})
+            return _json_response(self, HTTPStatus.OK, {"status": "resolved", "decision": resolved})
+
+        m = re.fullmatch(r"/api/projects/([a-z0-9-]+)/cancel", path)
+        if m:
+            slug = m.group(1)
+            result = _cancel_pipeline(slug)
+            if result.get("error"):
+                return _json_response(self, HTTPStatus.NOT_FOUND, result)
             return _json_response(self, HTTPStatus.OK, result)
 
         m = re.fullmatch(r"/api/projects/([a-z0-9-]+)/run", path)
@@ -435,8 +662,9 @@ class PortalHandler(SimpleHTTPRequestHandler):
             if _project_root(slug) is None:
                 return _json_response(self, HTTPStatus.NOT_FOUND, {"error": "project not found"})
             body = _read_json_body(self)
-            stage = str(body.get("stage", "")).upper()
-            if stage not in {"S0", "S1", "S2", "S3", "S4", "S5"}:
+            stage = _normalize_stage_id(str(body.get("stage", "")))
+            runnable = _manifest_api().RUNNABLE_STAGE_IDS
+            if stage not in runnable:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "invalid stage"})
             skip_llm = bool(body.get("skip_llm", False))
             threading.Thread(

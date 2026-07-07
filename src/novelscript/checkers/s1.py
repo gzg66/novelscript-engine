@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import re
-
 from novelscript.checkers.base import CheckerReport
+from novelscript.index.season_plan import count_s1_season_arc_rows
 
 LEAD_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "想要": ("想要", "want", "她想要什么", "想要什么"),
@@ -19,7 +18,7 @@ def _has_lead_field(md_text: str, aliases: tuple[str, ...]) -> bool:
     return False
 
 
-def check_s1_premise(md_text: str, *, expected_seasons: int = 5) -> CheckerReport:
+def check_s1_premise(md_text: str, *, expected_seasons: int | None = None) -> CheckerReport:
     report = CheckerReport(stage="S1_premise", passed=True)
     has_one_liner = (
         "一句话" in md_text
@@ -30,10 +29,11 @@ def check_s1_premise(md_text: str, *, expected_seasons: int = 5) -> CheckerRepor
     if not has_one_liner:
         report.add_issue("Missing one-liner premise")
 
-    season_rows = len(re.findall(r"\|\s*\*{0,2}S\d+\*{0,2}\s*\|", md_text, re.I))
-    season_rows += len(re.findall(r"\|\s*\*{0,2}Season\s+\d+\*{0,2}\s*\|", md_text, re.I))
-    if season_rows < expected_seasons:
-        report.add_issue(f"season arc rows {season_rows} < {expected_seasons}", hard=False)
+    season_rows = count_s1_season_arc_rows(md_text)
+    if expected_seasons is not None and season_rows != expected_seasons:
+        report.add_issue(f"season arc rows {season_rows} != expected {expected_seasons}")
+    elif expected_seasons is None and season_rows < 1:
+        report.add_issue("Missing protagonist season arc table rows")
     if not report.hard_fail:
         report.passed = True
     return report

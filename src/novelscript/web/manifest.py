@@ -8,12 +8,37 @@ from typing import Any
 
 STAGE_SPECS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
     (
-        "S0",
-        "改编简报 & 故事引擎",
+        "P0",
+        "模式与口味校准",
+        [("preference", "project_preference.md", "项目偏好")],
+    ),
+    (
+        "stage0",
+        "故事大纲与角色库",
         [
-            ("brief", "S0_adaptation_brief.md", "改编简报"),
-            ("engine", "S0_story_engine.md", "故事引擎"),
+            ("outline", "input/stage0/outline.md", "故事大纲"),
+            ("characters", "input/stage0/characters.md", "角色库"),
         ],
+    ),
+    (
+        "P1",
+        "素材拆解",
+        [("cards", "source_cards/index.md", "素材卡索引")],
+    ),
+    (
+        "S0",
+        "故事引擎",
+        [("engine", "S0_story_engine.md", "故事引擎")],
+    ),
+    (
+        "brief",
+        "改编简报",
+        [("brief", "S0_adaptation_brief.md", "改编简报")],
+    ),
+    (
+        "P3",
+        "创作策略",
+        [("strategy", "adaptation_strategy.md", "改编策略")],
     ),
     (
         "S1",
@@ -43,7 +68,14 @@ STAGE_SPECS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         "场次剧本",
         [],
     ),
+    (
+        "P6",
+        "试播集观感卡",
+        [("review", "audit/review_cards_S1_pilot.md", "试播观感卡")],
+    ),
 ]
+
+RUNNABLE_STAGE_IDS = frozenset(sid for sid, _, _ in STAGE_SPECS)
 
 DEFAULT_ENGINES = [
     {"id": "I", "name": "亲情守护与阶级逆袭", "symbol": "❄"},
@@ -203,12 +235,18 @@ def _parse_characters_from_bible(project_root: Path) -> list[dict[str, Any]]:
 
 
 _STAGE_TO_PHASE = {
+    "P0": "P0",
+    "stage0": "stage0",
+    "P1": "P1",
     "S0": "S0",
+    "brief": "brief",
+    "P3": "P3",
     "S1": "S1",
     "S2": "S2",
     "S3": "S3",
     "S4": "S4/S5",
     "S5": "S4/S5",
+    "P6": "P6",
 }
 
 
@@ -223,7 +261,7 @@ def _manifest_resume_state(manifest: dict[str, Any]) -> tuple[str, int, str]:
         return "done", 100, "全部阶段已完成"
     if not complete:
         if chapters:
-            return "index", _PHASE_PROGRESS["index"], f"章节索引已完成（{chapters} 章）· 点击「开始精编」启动 S0→S5 全流程"
+            return "index", _PHASE_PROGRESS["index"], f"章节索引已完成（{chapters} 章）· 点击「开始精编」启动 P0→S5 全流程"
         return "idle", 0, "等待启动精编管线"
 
     last_id = complete[-1]["id"]
@@ -340,14 +378,19 @@ def list_projects(projects_dir: Path) -> list[dict[str, Any]]:
 _STAGE_LABELS = {sid: label for sid, label, _ in STAGE_SPECS}
 
 _PHASE_PROGRESS: dict[str, int] = {
-    "index": 5,
-    "stage0": 10,
-    "S0": 20,
-    "S1": 35,
-    "S2": 50,
-    "S3": 65,
-    "S4/S5": 80,
-    "fidelity": 95,
+    "index": 4,
+    "stage0": 8,
+    "P0": 10,
+    "P1": 16,
+    "S0": 22,
+    "brief": 26,
+    "P3": 30,
+    "S1": 38,
+    "S2": 48,
+    "S3": 58,
+    "S4/S5": 72,
+    "fidelity": 86,
+    "P6": 94,
     "done": 100,
 }
 
@@ -363,7 +406,11 @@ def _friendly_activity(msg: str) -> str | None:
         (r"Stage index: done \((\d+) chapters\)", r"章节索引完成 · \1 章"),
         (r"stage0 开始生成", "正在生成故事大纲与改编底稿…"),
         (r"stage0 完成", "故事大纲与改编底稿已就绪"),
+        (r"Stage P0: project preference", "P0 · 模式与口味校准"),
+        (r"Stage P1: source cards", "P1 · 素材拆解"),
         (r"Stage S0: story engine", "S0 · 故事引擎"),
+        (r"Stage brief:", "改编简报"),
+        (r"Stage P3: adaptation strategy", "P3 · 创作策略"),
         (r"Stage S1: premise", "S1 · 系列定位"),
         (r"Stage S1: character bible", "S1 · 人物圣经"),
         (r"Stage S2: season map", "S2 · 季图谱"),
@@ -380,7 +427,10 @@ def _friendly_activity(msg: str) -> str | None:
         (r"s\d+_\w+: attempt (\d+) failed", r"第 \1 次校验未通过，重试中"),
         (r"Blocked at", "已暂停，等待人工审批"),
         (r"等待人工审批", "等待人工审批"),
-        (r"校验提示", "校验待确认，等待人工审批"),
+        (r"Pipeline cancelled", "用户已中断精编"),
+        (r"用户已中断", "用户已中断精编"),
+        (r"Web pipeline session ended", "精编会话已结束"),
+        (r"Web pipeline session started", "精编管线已启动"),
     ]
     for pattern, repl in rules:
         m = re.search(pattern, msg)
@@ -389,6 +439,30 @@ def _friendly_activity(msg: str) -> str | None:
                 return re.sub(pattern, repl, msg)
             return repl
     return None
+
+
+def _log_timestamp(line: str) -> datetime | None:
+    m = re.match(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})", line)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
+_PIPELINE_LOG_MARKERS = ("[novelscript.pipeline]", "[novelscript.stages]", "[novelscript.llm]", "[pipeline]")
+
+
+def _log_is_stale(lines: list[str], *, max_age_seconds: int = 90) -> bool:
+    for line in reversed(lines):
+        if not any(marker in line for marker in _PIPELINE_LOG_MARKERS):
+            continue
+        ts = _log_timestamp(line)
+        if ts is None:
+            continue
+        return (datetime.now() - ts).total_seconds() > max_age_seconds
+    return True
 
 
 def _parse_pipeline_progress(lines: list[str]) -> dict[str, Any]:
@@ -416,6 +490,10 @@ def _parse_pipeline_progress(lines: list[str]) -> dict[str, Any]:
         elif "Stage index: done" in msg:
             phase = "stage0"
             message = msg.replace("Stage index: done", "章节索引完成").replace("chapters", "章")
+        elif "Stage P0:" in msg:
+            phase = "P0"
+            current_stage = "P0"
+            message = "P0 · 模式与口味校准"
         elif "stage0 开始" in msg:
             phase = "stage0"
             message = "正在生成故事大纲与改编底稿…"
@@ -426,6 +504,14 @@ def _parse_pipeline_progress(lines: list[str]) -> dict[str, Any]:
             phase = "S0"
             current_stage = "S0"
             message = "S0 · 故事引擎"
+        elif "Stage P1:" in msg:
+            phase = "P1"
+            current_stage = "P1"
+            message = "P1 · 素材拆解"
+        elif "Stage P3:" in msg:
+            phase = "P3"
+            current_stage = "P3"
+            message = "P3 · 创作策略"
         elif "Stage S1: premise" in msg:
             phase = "S1"
             current_stage = "S1"
@@ -458,11 +544,21 @@ def _parse_pipeline_progress(lines: list[str]) -> dict[str, Any]:
             phase = "fidelity"
             current_stage = None
             message = "忠实度审计"
+        elif "Stage P6" in msg or "试播集观感卡" in msg:
+            phase = "P6"
+            current_stage = "P6"
+            message = "P6 · 试播集观感卡"
         elif "Pipeline finished" in msg:
             running = False
             phase = "done"
             current_stage = None
             message = "全部阶段已完成"
+        elif "Pipeline cancelled" in msg or "用户已中断" in msg:
+            running = False
+            message = "用户已中断精编"
+        elif "Web pipeline session ended" in msg:
+            running = False
+            message = "精编已停止"
         elif "Blocked at" in msg or "已暂停" in msg:
             running = False
             friendly = _friendly_activity(msg)
@@ -482,6 +578,10 @@ def _parse_pipeline_progress(lines: list[str]) -> dict[str, Any]:
         running = False
         phase = "done"
         message = "全部阶段已完成"
+
+    if running and _log_is_stale(lines):
+        running = False
+        message = "精编已停止"
 
     activity: list[str] = []
     for line in reversed(lines):
@@ -582,6 +682,8 @@ def detect_pending_gate(project_root: Path) -> dict[str, Any] | None:
 
 
 def pipeline_status(project_root: Path) -> dict[str, Any]:
+    from novelscript.pipeline.cancel import is_pipeline_active
+
     log_path = project_root / "pipeline.log"
     lines: list[str] = []
     if log_path.exists():
@@ -626,6 +728,12 @@ def pipeline_status(project_root: Path) -> dict[str, Any]:
         parsed["message"] = pending_gate["message"]
         parsed["progress"] = _PHASE_PROGRESS.get(pending_gate["stageId"], parsed["progress"])
 
+    from novelscript.audit.decision_log import load_decision_queue
+
+    decision_queue = load_decision_queue(project_root / "audit")
+
+    parsed["running"] = parsed["running"] and is_pipeline_active(project_root)
+
     return {
         "running": parsed["running"],
         "phase": parsed["phase"],
@@ -642,4 +750,5 @@ def pipeline_status(project_root: Path) -> dict[str, Any]:
         "logTail": [_log_message(l) for l in lines[-6:]],
         "stages": manifest["stages"],
         "pendingGate": pending_gate,
+        "decisionQueue": decision_queue,
     }
