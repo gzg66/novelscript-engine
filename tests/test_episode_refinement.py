@@ -89,9 +89,9 @@ def test_format_adaptation_input_bundle() -> None:
 def test_adaptation_notes_checker() -> None:
     md = """
 ## 改编决策记录
-| 原著依据 | 改编动作 | 戏剧理由 | 服务引擎 |
-|---|---|---|---|
-| Ch3 独白 | 删除 | 不可外化 | 引擎1 |
+| 原著依据 | 改编动作 | 戏剧理由 | 观众替代获知 | 服务引擎 |
+|---|---|---|---|---|
+| Ch3 独白 | 删除 | 不可外化，情绪由动作替代 | Beat 3 外化动作 | 引擎1 |
 """
     notes = parse_adaptation_notes_md(md)
     report = check_adaptation_notes(notes)

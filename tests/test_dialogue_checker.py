@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from novelscript.checkers.dialogue import (
+    check_causal_chain,
     check_english_dialogue,
     check_narrative_clarity,
     contains_cjk,
@@ -41,3 +42,12 @@ def test_narrative_clarity_allows_deferred_in_notes() -> None:
     notes = [{"source_ref": "Ch1 ring", "action": "adapt:defer → EP02", "dramatic_reason": "ring task deferred"}]
     report = check_narrative_clarity(beats, adaptation_notes=notes)
     assert report.passed, report.issues
+
+
+def test_causal_chain_flags_new_speaker_without_establishment() -> None:
+    beats = [
+        {"beat_id": 1, "dialogue": 'Eliza: "Get up and walk home!"', "action": "stands over Freya"},
+    ]
+    report = check_causal_chain(beats)
+    assert not report.passed
+    assert any("Eliza" in i or "directive" in i or "speaker" in i for i in report.issues)

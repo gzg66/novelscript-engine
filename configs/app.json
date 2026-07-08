@@ -38,6 +38,7 @@
   },
   "pipeline": {
     "max_workers": 4,
-    "max_attempts": 3
+    "max_attempts": 3,
+    "s5_quality_tier": "production"
   }
 }

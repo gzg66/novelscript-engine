@@ -16,9 +16,9 @@ def test_parse_scene_style_beat_sheet() -> None:
 
 | Beat | 来源索引 | 画面动作 | 对白/声音 | 戏剧功能 | 呈现提示 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| Beat 1 | Ch1-1 | 车辆失控冲下桥 | 撞击声 | Setup | 主观急坠 |
-| Beat 2 | Ch1-2 | 水下推门上游 | 气泡 | Rising | 冷色水下 |
-| Beat 3 | Ch1-3 | 力竭下沉，一只手抓住腰 | 喘息 | Climax | 手入画 |
+| Beat 1 | Ch1-1 | 车辆失控冲下桥 | SFX: crash impact | Setup | 主观急坠 |
+| Beat 2 | Ch1-2 | 水下推门上游 | SFX: bubbles | Rising | 冷色水下 |
+| Beat 3 | Ch1-3 | 力竭下沉，一只手抓住腰 | SFX: gasp | Climax | 手入画 |
 
 ## Scene 2：湖岸
 

@@ -183,6 +183,7 @@ def check_s5_script(
     *,
     episode_chapters: list[int] | None = None,
     must_keep: list[dict[str, Any]] | None = None,
+    adaptation_notes: list[dict[str, Any]] | None = None,
 ) -> CheckerReport:
     report = CheckerReport(stage="S5", passed=True)
     scenes = script.get("scenes") or []
@@ -236,10 +237,10 @@ def check_s5_script(
     all_beats: list[dict[str, Any]] = []
     for scene in scenes:
         all_beats.extend(scene.get("beats") or [])
-    from novelscript.checkers.dialogue import check_narrative_clarity
+    from novelscript.checkers.dialogue import check_causal_chain
 
-    narr = check_narrative_clarity(all_beats)
-    for issue in narr.issues:
+    causal = check_causal_chain(all_beats, adaptation_notes=adaptation_notes or [])
+    for issue in causal.issues:
         report.add_issue(issue)
 
     if not report.hard_fail:

@@ -61,11 +61,15 @@ def _parse_table_rows(lines: list[str], start: int) -> tuple[list[dict[str, Any]
             continue
 
         ext_idx = _column_index(headers, "外化", "画面动作", "画面")
+        dial_idx = _column_index(headers, "对白", "声音", "dialogue")
+        src_idx = _column_index(headers, "来源", "source", "索引")
         func_idx = _column_index(headers, "戏剧功能", "功能")
         dur_idx = _column_index(headers, "时长", "duration")
         hook_idx = _column_index(headers, "钩子", "hook")
         info_idx = _column_index(headers, "信息差", "info_gap", "信息")
         externalization = cells[ext_idx] if ext_idx is not None and ext_idx < len(cells) else ""
+        dialogue = cells[dial_idx] if dial_idx is not None and dial_idx < len(cells) else ""
+        source_index = cells[src_idx] if src_idx is not None and src_idx < len(cells) else ""
         dramatic_function = cells[func_idx] if func_idx is not None and func_idx < len(cells) else ""
         info_gap = cells[info_idx] if info_idx is not None and info_idx < len(cells) else ""
         if not externalization and len(cells) > 2:
@@ -87,6 +91,9 @@ def _parse_table_rows(lines: list[str], start: int) -> tuple[list[dict[str, Any]
                 "dramatic_function": dramatic_function,
                 "info_gap": info_gap,
                 "externalization": externalization,
+                "action": externalization,
+                "dialogue": dialogue,
+                "source_index": source_index,
                 "hook_anchor": hook_anchor,
                 "duration_sec": duration_sec,
             }
@@ -175,20 +182,30 @@ def check_s4_beat_sheet(
     *,
     episode_spec: dict[str, Any] | None = None,
     adaptation_notes: list[dict[str, Any]] | None = None,
+    info_ledger: list[dict[str, Any]] | None = None,
+    source_chapters: list[int] | None = None,
 ) -> CheckerReport:
     report = CheckerReport(stage="S4", passed=True)
     beats = data.get("beats") or []
     n = len(beats)
     if n < 4 or n > 8:
         report.add_issue(f"Beat count {n} not in range 4-8")
-    from novelscript.checkers.dialogue import check_english_dialogue, check_narrative_clarity
+    from novelscript.checkers.dialogue import check_causal_chain, check_english_dialogue
 
     dial = check_english_dialogue(beats)
     for issue in dial.issues:
         report.add_issue(issue)
-    narr = check_narrative_clarity(beats, adaptation_notes=adaptation_notes)
-    for issue in narr.issues:
+    causal = check_causal_chain(
+        beats, adaptation_notes=adaptation_notes, tier="beat_sheet"
+    )
+    for issue in causal.issues:
         report.add_issue(issue)
+
+    if source_chapters and len(source_chapters) >= 2 and n <= 4:
+        report.add_warning(
+            f"Beat count {n} with {len(source_chapters)} source chapters — "
+            "information density high; prefer merging chapters over compressing beats"
+        )
 
     for beat in beats:
         if not beat.get("externalization"):
@@ -217,12 +234,35 @@ def check_s4_beat_sheet(
     if adaptation_notes is not None:
         from novelscript.checkers.adaptation import check_adaptation_notes
 
-        adapt_report = check_adaptation_notes(adaptation_notes)
-        for issue in adapt_report.issues:
-            if adapt_report.hard_fail:
-                report.add_issue(issue)
-            else:
-                report.add_warning(issue)
+        if not adaptation_notes:
+            report.add_warning(
+                "adaptation_notes: missing ## 改编决策记录 table "
+                "(add 5-column table at end of beat_sheet.md)"
+            )
+        else:
+            adapt_report = check_adaptation_notes(adaptation_notes)
+            for issue in adapt_report.issues:
+                if adapt_report.hard_fail:
+                    report.add_issue(issue)
+                else:
+                    report.add_warning(issue)
+
+    if info_ledger is not None:
+        from novelscript.checkers.info_ledger import check_info_ledger
+
+        if not info_ledger:
+            report.add_warning(
+                "info_ledger: missing ## 本集信息账本 section "
+                "(add 3-6 rows before ## 改编决策记录)"
+            )
+        else:
+            beat_ids = {str(b.get("beat_id")) for b in beats}
+            ledger_report = check_info_ledger(info_ledger, beat_ids=beat_ids)
+            for issue in ledger_report.issues:
+                if ledger_report.hard_fail:
+                    report.add_issue(issue)
+                else:
+                    report.add_warning(issue)
 
     if not report.hard_fail:
         report.passed = True

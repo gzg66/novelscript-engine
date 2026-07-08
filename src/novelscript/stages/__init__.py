@@ -498,6 +498,7 @@ def _persist_adaptation_notes(beat_text: str, notes_path: Path) -> None:
 def run_s4_beats(ctx: ProjectContext, season_id: str, ep_num: int, settings: AppSettings) -> dict[str, Any]:
     from novelscript.checkers.adaptation import extract_adaptation_section, parse_adaptation_notes_md
     from novelscript.checkers.base import CheckerReport
+    from novelscript.checkers.info_ledger import parse_info_ledger_md
     from novelscript.checkers.s3 import parse_episode_list_md
     from novelscript.checkers.s4 import check_s4_beat_sheet, parse_beat_sheet_md
 
@@ -510,7 +511,14 @@ def run_s4_beats(ctx: ProjectContext, season_id: str, ep_num: int, settings: App
         data = parse_beat_sheet_md(text, episode_id=ep_id)
         adapt_section = extract_adaptation_section(text)
         notes = parse_adaptation_notes_md(adapt_section) if adapt_section else []
-        return check_s4_beat_sheet(data, episode_spec=episode_spec, adaptation_notes=notes)
+        ledger = parse_info_ledger_md(text)
+        return check_s4_beat_sheet(
+            data,
+            episode_spec=episode_spec,
+            adaptation_notes=notes,
+            info_ledger=ledger,
+            source_chapters=source_chs,
+        )
 
     ep_list = (ctx.season_dir(season_id) / "episode_list.md").read_text(encoding="utf-8")
     ep_row = next(
@@ -537,7 +545,8 @@ def run_s4_beats(ctx: ProjectContext, season_id: str, ep_num: int, settings: App
     if adapt_bundle:
         parts.append(adapt_bundle)
     parts.append(
-        f"请为 {ep_id} 输出 beat_sheet.md（含文末 ## 改编决策记录）。元数据中文；对白/声音列全部英文。"
+        f"请为 {ep_id} 输出 beat_sheet.md（含文末 ## 改编决策记录 与 ## 本集信息账本）。"
+        "元数据中文；对白/声音列全部英文。"
         "必保锚点严格保真；非锚点可精编删减并在改编决策表记录。"
     )
     result = _run_stage_loop(
@@ -562,6 +571,7 @@ def run_s5_script(ctx: ProjectContext, season_id: str, ep_num: int, settings: Ap
     from novelscript.checkers.base import CheckerReport
     from novelscript.checkers.s3 import parse_episode_list_md
     from novelscript.checkers.s5 import check_s5_script, parse_script_md
+    from novelscript.quality.rubric import check_script_quality
 
     ep_id = f"{season_id}E{ep_num:02d}"
     global_id = f"EP{ep_num:03d}"
@@ -570,12 +580,15 @@ def run_s5_script(ctx: ProjectContext, season_id: str, ep_num: int, settings: Ap
     out_md = ep_dir / "script.md"
     out_json = ep_dir / "script.json"
     notes_path = ep_dir / "adaptation_notes.md"
+    quality_tier = settings.pipeline.s5_quality_tier
 
     def checker(text: str) -> CheckerReport:
         script = parse_script_md(text, episode_id=ep_id, global_episode_id=global_id)
-        report = check_s5_script(script, episode_chapters=source_chs)
+        notes: list[dict[str, Any]] = []
         if notes_path.exists():
             notes = parse_adaptation_notes_md(notes_path.read_text(encoding="utf-8"))
+        report = check_s5_script(script, episode_chapters=source_chs, adaptation_notes=notes)
+        if notes:
             adapt = check_adaptation_notes(notes)
             for issue in adapt.issues:
                 if adapt.hard_fail:
@@ -584,6 +597,10 @@ def run_s5_script(ctx: ProjectContext, season_id: str, ep_num: int, settings: Ap
                     report.add_warning(issue)
         else:
             report.add_issue(f"{ep_id}: missing adaptation_notes.md (produce in S4)")
+        if quality_tier and quality_tier != "baseline":
+            quality = check_script_quality(script, tier=quality_tier, episode_spec=episode_spec)
+            for issue in quality.issues:
+                report.add_issue(issue)
         return report
 
     beats = (ep_dir / "beat_sheet.md").read_text(encoding="utf-8")

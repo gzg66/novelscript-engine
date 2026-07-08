@@ -57,7 +57,12 @@
 
         <label class="checkbox-row">
           <input type="checkbox" id="autostart-check" checked>
-          <span>创建后自动开始精编；S2 季图谱与试播集前会暂停等待你审核通过</span>
+          <span>创建后自动开始精编；标准模式下 S2 季图谱与试播集后会暂停等待审核</span>
+        </label>
+
+        <label class="checkbox-row">
+          <input type="checkbox" id="pilot-test-check" name="pilot_test">
+          <span>试播测试：自动跳过年图谱与试播集审批，仅生成第一季 EP01–03（方便联调测试）</span>
         </label>
 
         <p id="form-error" class="form-error" hidden></p>

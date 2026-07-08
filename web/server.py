@@ -114,7 +114,14 @@ def _project_root(slug: str) -> Path | None:
     return root
 
 
-def _create_project(upload_name: str, content: bytes, *, display_title: str = "", mode: str = "M1") -> dict:
+def _create_project(
+    upload_name: str,
+    content: bytes,
+    *,
+    display_title: str = "",
+    mode: str = "M1",
+    pilot_test: bool = False,
+) -> dict:
     slug = _safe_slug(upload_name)
     project_root = PROJECTS_DIR / slug
     if project_root.exists() and (project_root / "input" / "novel.txt").exists():
@@ -137,6 +144,8 @@ def _create_project(upload_name: str, content: bytes, *, display_title: str = ""
         meta["display_title"] = display_title
     else:
         meta["display_title"] = Path(upload_name).stem
+    if pilot_test:
+        meta["pilot_test"] = True
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     setup_logging(project_root=ctx.root)
@@ -199,11 +208,13 @@ def _run_pipeline(slug: str, *, through: str | None = "S5", from_stage: str | No
         web_log.info("Web pipeline session started slug=%s", slug)
         logging.getLogger("pipeline").info("Web pipeline session started slug=%s", slug)
         pipe = Pipeline(ctx, settings)
+        pilot_test = bool(ctx.meta.get("pilot_test"))
         result = pipe.run(
             through=through or "S5",
             from_stage=from_stage,
             skip_llm=skip_llm,
-            auto_approve=False,
+            auto_approve=pilot_test,
+            stop_after_pilot=pilot_test,
         )
         if result.get("cancelled"):
             web_log.info("Pipeline cancelled for %s", slug)
@@ -266,7 +277,7 @@ def _cancel_pipeline(slug: str) -> dict:
     }
 
 
-def _approve_gate(slug: str, gate: str, *, resume: bool = True) -> dict:
+def _approve_gate(slug: str, gate: str, *, resume: bool = True, resume_only: bool = False) -> dict:
     manifest_mod = _manifest_api()
     GATE_RESUME_FROM = manifest_mod.GATE_RESUME_FROM
 
@@ -276,9 +287,10 @@ def _approve_gate(slug: str, gate: str, *, resume: bool = True) -> dict:
     if gate not in GATE_RESUME_FROM:
         return {"error": "invalid gate"}
 
-    approved_dir = root / "approved"
-    approved_dir.mkdir(parents=True, exist_ok=True)
-    (approved_dir / f"{gate}.approved").write_text("", encoding="utf-8")
+    if not resume_only:
+        approved_dir = root / "approved"
+        approved_dir.mkdir(parents=True, exist_ok=True)
+        (approved_dir / f"{gate}.approved").write_text("", encoding="utf-8")
 
     resume_from = GATE_RESUME_FROM[gate]
     if resume:
@@ -441,8 +453,7 @@ def _run_stage(slug: str, stage: str, *, skip_llm: bool = False) -> None:
                     fut.result()
             pipe._update_must_keep_after_s3()
         elif stage in ("S4", "S5"):
-            pilot_only = not ctx.is_approved("s1_pilot")
-            eps = pipe._pilot_episodes() if pilot_only else pipe._all_episodes("S1")
+            eps = pipe._episodes_for_s4_s5("S1")
             with ThreadPoolExecutor(max_workers=ctx.max_workers) as pool:
                 if stage == "S4":
                     futures = {
@@ -598,9 +609,10 @@ class PortalHandler(SimpleHTTPRequestHandler):
             if not gate:
                 return _json_response(self, HTTPStatus.BAD_REQUEST, {"error": "gate is required"})
             resume = bool(body.get("resume", True))
+            resume_only = bool(body.get("resumeOnly", False))
             if slug in _running:
                 return _json_response(self, HTTPStatus.CONFLICT, {"error": "pipeline already running"})
-            result = _approve_gate(slug, gate, resume=resume)
+            result = _approve_gate(slug, gate, resume=resume, resume_only=resume_only)
             if result.get("error"):
                 return _json_response(self, HTTPStatus.BAD_REQUEST, result)
             return _json_response(self, HTTPStatus.OK, result)
@@ -712,11 +724,19 @@ class PortalHandler(SimpleHTTPRequestHandler):
 
         title_field = fields.get("title", (None, b""))[1]
         mode_field = fields.get("mode", (None, b"M1"))[1]
+        pilot_test_field = fields.get("pilot_test", (None, b""))[1]
         display_title = title_field.decode("utf-8", errors="replace").strip()
         mode = mode_field.decode("utf-8", errors="replace").strip() or "M1"
+        pilot_test = pilot_test_field.decode("utf-8", errors="replace").strip().lower() in ("1", "true", "yes", "on")
 
         try:
-            result = _create_project(filename, content, display_title=display_title, mode=mode)
+            result = _create_project(
+                filename,
+                content,
+                display_title=display_title,
+                mode=mode,
+                pilot_test=pilot_test,
+            )
         except Exception as exc:
             return _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 

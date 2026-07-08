@@ -657,25 +657,59 @@ def detect_pending_gate(project_root: Path) -> dict[str, Any] | None:
         }
 
     if s1_eps.exists():
-        ep1 = ctx.episode_dir("S1", 1) / "script.json"
-        if not ep1.exists():
-            approved = ctx.is_approved("s1_pilot")
-            message = (
-                "试播集审批已通过，但剧本尚未生成。点击继续精编"
-                if approved
-                else "分集清单已就绪，请审阅后批准试播集（EP01–03）剧本精编"
-            )
+        pilot_scripts = all(
+            (ctx.episode_dir("S1", ep) / "script.json").exists() for ep in (1, 2, 3)
+        )
+        if ctx.meta.get("pilot_test") and pilot_scripts:
+            return None
+
+        approved = ctx.is_approved("s1_pilot")
+        pipe = Pipeline(ctx)
+        remaining_missing = any(
+            not (ctx.episode_dir("S1", int(ep_id.split("E")[-1])) / "script.json").exists()
+            for ep_id in pipe._remaining_episodes("S1")
+        )
+
+        if not pilot_scripts:
             return {
                 "gate": "s1_pilot",
                 "label": GATE_LABELS["s1_pilot"],
-                "stageId": "S3",
+                "stageId": "S4",
                 "docFile": "seasons/s1/episode_list.md",
                 "passed": True,
                 "issues": [],
                 "resumeFrom": GATE_RESUME_FROM["s1_pilot"],
                 "approved": approved,
-                "resumeOnly": approved,
-                "message": message,
+                "resumeOnly": True,
+                "message": "分集清单已就绪，点击继续精编生成试播集（EP01–03）",
+            }
+
+        if pilot_scripts and not approved:
+            return {
+                "gate": "s1_pilot",
+                "label": GATE_LABELS["s1_pilot"],
+                "stageId": "S4",
+                "docFile": "seasons/s1/ep01/script.json",
+                "passed": True,
+                "issues": [],
+                "resumeFrom": GATE_RESUME_FROM["s1_pilot"],
+                "approved": False,
+                "resumeOnly": False,
+                "message": "试播集 EP01–03 已生成，请审阅后批准继续全季精编",
+            }
+
+        if approved and remaining_missing:
+            return {
+                "gate": "s1_pilot",
+                "label": GATE_LABELS["s1_pilot"],
+                "stageId": "S4",
+                "docFile": "seasons/s1/episode_list.md",
+                "passed": True,
+                "issues": [],
+                "resumeFrom": GATE_RESUME_FROM["s1_pilot"],
+                "approved": True,
+                "resumeOnly": True,
+                "message": "试播集已批准，点击继续精编生成剩余集",
             }
 
     return None

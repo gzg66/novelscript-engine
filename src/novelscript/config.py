@@ -57,6 +57,7 @@ class LLMRuntimeConfig:
 class PipelineConfig:
     max_workers: int = 4
     max_attempts: int = 3
+    s5_quality_tier: str = "production"
 
 
 @dataclass(frozen=True)
@@ -151,6 +152,7 @@ def load_settings(
         pipeline=PipelineConfig(
             max_workers=_env_int("NOVELSCRIPT_MAX_WORKERS", int(pipeline_cfg.get("max_workers", 4))),
             max_attempts=_env_int("NOVELSCRIPT_MAX_ATTEMPTS", int(pipeline_cfg.get("max_attempts", 3))),
+            s5_quality_tier=str(pipeline_cfg.get("s5_quality_tier", "production")),
         ),
     )
 

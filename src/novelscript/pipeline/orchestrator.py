@@ -78,6 +78,7 @@ class Pipeline:
         episode: str | None = None,
         skip_llm: bool = False,
         auto_approve: bool = True,
+        stop_after_pilot: bool = False,
     ) -> dict[str, Any]:
         results: dict[str, Any] = {"stages": {}}
         try:
@@ -88,6 +89,7 @@ class Pipeline:
                 episode=episode,
                 skip_llm=skip_llm,
                 auto_approve=auto_approve,
+                stop_after_pilot=stop_after_pilot,
             )
         except PipelineCancelled:
             emit("⏹ 用户已中断精编")
@@ -104,18 +106,21 @@ class Pipeline:
         episode: str | None,
         skip_llm: bool,
         auto_approve: bool,
+        stop_after_pilot: bool,
     ) -> dict[str, Any]:
         emit(
             f"流水线启动 | 项目={self.ctx.root} 目标={through or '全部'} "
             f"从={from_stage or '开头'} skip_llm={skip_llm} 人工审批={not auto_approve}"
+            + (" 试播测试=仅EP01-03" if stop_after_pilot else "")
         )
         log.info(
-            "Pipeline start project=%s through=%s from=%s skip_llm=%s auto_approve=%s",
+            "Pipeline start project=%s through=%s from=%s skip_llm=%s auto_approve=%s stop_after_pilot=%s",
             self.ctx.root,
             through,
             from_stage,
             skip_llm,
             auto_approve,
+            stop_after_pilot,
         )
 
         if self._should_run_early_block(from_stage):
@@ -218,6 +223,16 @@ class Pipeline:
                             fut.cancel()
                         raise
             self._update_must_keep_after_s3()
+            cross = self._check_season_cross_episode("S1")
+            if cross.issues:
+                results.setdefault("cross_episode", {})["S3"] = {
+                    "passed": cross.passed,
+                    "issues": cross.issues,
+                }
+                if cross.hard_fail:
+                    raise PipelineError(f"S3 cross-episode check failed: {cross.issues[:3]}")
+                for issue in cross.issues:
+                    log.warning("S3 cross-episode: %s", issue)
 
         if episode:
             emit(f"▶ 单集：{episode}")
@@ -227,42 +242,35 @@ class Pipeline:
         if self._should_run("S4", through, from_stage) or self._should_run("S5", through, from_stage):
             self._abort_if_cancelled()
             pilot_only = not self.ctx.is_approved("s1_pilot")
-            if pilot_only and not skip_llm and not auto_approve:
-                blocked = "等待人工审批：approved/s1_pilot.approved — 去掉 --wait-approval 可自动继续"
-                results["blocked"] = blocked
-                emit(f"⏸ 已暂停：{blocked}")
-                log.warning("Blocked before S4/S5: s1_pilot approval required")
+            eps = self._episodes_for_s4_s5("S1")
+            if not eps and pilot_only and self._pilot_scripts_complete():
+                emit("  ✓ 试播集已完成，无需重复生成")
+                log.info("Pilot episodes already complete; skipping S4/S5")
                 return results
-            eps = self._pilot_episodes() if pilot_only else self._all_episodes("S1")
-            emit(f"▶ S4/S5：共 {len(eps)} 集（{', '.join(eps)}）")
-            log.info("Stage S4/S5: %s episodes (%s)", len(eps), ", ".join(eps))
-            with ThreadPoolExecutor(max_workers=self.ctx.max_workers) as pool:
-                futures = {pool.submit(self._run_episode_pipeline, ep, skip_llm): ep for ep in eps}
-                try:
-                    for fut in as_completed(futures):
-                        self._abort_if_cancelled()
-                        ep = futures[fut]
-                        results["stages"][f"ep_{ep}"] = fut.result()
-                        emit(f"  ✓ {ep}：完成")
-                        log.info("Episode %s: done", ep)
-                except PipelineCancelled:
-                    for fut in futures:
-                        fut.cancel()
-                    raise
-            if auto_approve and pilot_only:
-                self._approve("s1_pilot")
-                emit("  ✓ 试播集：已自动审批")
-                log.info("Pilot episodes auto-approved")
-            for ep in (1, 2, 3):
-                script_path = self.ctx.episode_dir("S1", ep) / "script.json"
-                if script_path.exists():
-                    self._update_must_keep_after_s5(json.loads(script_path.read_text(encoding="utf-8")))
-            emit("▶ 忠实度审计：S1")
-            log.info("Running fidelity audit for S1")
-            results["stages"]["fidelity_S1"] = self.run_fidelity_audit("S1")
-            if not skip_llm:
-                emit("▶ P6：试播集观感卡")
-                results["stages"]["P6"] = run_p6_pilot_review(self.ctx, self.settings, skip_llm=False)
+            if eps:
+                self._run_s4_s5_episodes(eps, results, skip_llm=skip_llm)
+            if pilot_only:
+                self._post_pilot_s4_s5(results, skip_llm=skip_llm)
+                if stop_after_pilot:
+                    emit("  ✓ 试播测试：已生成 EP01–03，流水线结束")
+                    log.info("Pilot test run complete; stopping after EP01-03")
+                    return results
+                if not skip_llm and not auto_approve:
+                    blocked = "试播集 EP01–03 已生成，请审阅后批准继续"
+                    results["blocked"] = blocked
+                    emit(f"⏸ 已暂停：{blocked}")
+                    log.warning("Blocked after pilot S4/S5: awaiting s1_pilot approval")
+                    return results
+                if auto_approve:
+                    self._approve("s1_pilot")
+                    emit("  ✓ 试播集：已自动审批")
+                    log.info("Pilot episodes auto-approved")
+                    remaining = self._remaining_episodes("S1")
+                    if remaining:
+                        self._run_s4_s5_episodes(remaining, results, skip_llm=skip_llm)
+                        self._post_full_s4_s5(results)
+            else:
+                self._post_full_s4_s5(results)
 
         emit(f"流水线结束 | 已完成阶段：{', '.join(results.get('stages', {}))}")
         log.info("Pipeline finished stages=%s", list(results.get("stages", {}).keys()))
@@ -653,6 +661,11 @@ class Pipeline:
             return int(data.get("total", 130))
         return 130
 
+    def _check_season_cross_episode(self, season_id: str) -> CheckerReport:
+        from novelscript.checkers.cross_episode import run_season_cross_checks
+
+        return run_season_cross_checks(self.ctx.season_dir(season_id), season_id=season_id)
+
     def _load_seasons(self) -> list[str]:
         md = (self.ctx.root / "S2_season_map.md").read_text(encoding="utf-8")
         return [s["season_id"] for s in parse_season_map_md(md)]
@@ -663,8 +676,79 @@ class Pipeline:
             return json.loads(path.read_text(encoding="utf-8"))
         return []
 
+    def _pilot_scripts_complete(self) -> bool:
+        return all(
+            (self.ctx.episode_dir("S1", ep) / "script.json").exists() for ep in (1, 2, 3)
+        )
+
     def _pilot_episodes(self) -> list[str]:
         return ["S1E01", "S1E02", "S1E03"]
+
+    def _remaining_episodes(self, season: str) -> list[str]:
+        pilot = set(self._pilot_episodes())
+        return [ep for ep in self._all_episodes(season) if ep not in pilot]
+
+    def _episodes_for_s4_s5(self, season: str = "S1") -> list[str]:
+        if self.ctx.meta.get("pilot_test") and self._pilot_scripts_complete():
+            return []
+        if not self.ctx.is_approved("s1_pilot"):
+            return self._pilot_episodes()
+        return self._remaining_episodes(season)
+
+    def _run_s4_s5_episodes(self, eps: list[str], results: dict[str, Any], *, skip_llm: bool) -> None:
+        emit(f"▶ S4/S5：共 {len(eps)} 集（{', '.join(eps)}）")
+        log.info("Stage S4/S5: %s episodes (%s)", len(eps), ", ".join(eps))
+        with ThreadPoolExecutor(max_workers=self.ctx.max_workers) as pool:
+            futures = {pool.submit(self._run_episode_pipeline, ep, skip_llm): ep for ep in eps}
+            try:
+                for fut in as_completed(futures):
+                    self._abort_if_cancelled()
+                    ep = futures[fut]
+                    results["stages"][f"ep_{ep}"] = fut.result()
+                    emit(f"  ✓ {ep}：完成")
+                    log.info("Episode %s: done", ep)
+            except PipelineCancelled:
+                for fut in futures:
+                    fut.cancel()
+                raise
+
+    def _post_pilot_s4_s5(self, results: dict[str, Any], *, skip_llm: bool) -> None:
+        for ep in (1, 2, 3):
+            script_path = self.ctx.episode_dir("S1", ep) / "script.json"
+            if script_path.exists():
+                self._update_must_keep_after_s5(json.loads(script_path.read_text(encoding="utf-8")))
+        cross = self._check_season_cross_episode("S1")
+        if cross.issues:
+            results.setdefault("cross_episode", {})["S5_pilot"] = {
+                "passed": cross.passed,
+                "issues": cross.issues,
+            }
+            if cross.hard_fail:
+                raise PipelineError(f"S5 cross-episode check failed: {cross.issues[:3]}")
+            for issue in cross.issues:
+                log.warning("S5 cross-episode (pilot): %s", issue)
+        emit("▶ 忠实度审计：S1 试播集")
+        log.info("Running fidelity audit for S1 pilot episodes")
+        pilot_ids = [f"S1E{ep:02d}" for ep in (1, 2, 3)]
+        results["stages"]["fidelity_S1_pilot"] = self.run_fidelity_audit("S1", episode_ids=pilot_ids)
+        if not skip_llm:
+            emit("▶ P6：试播集观感卡")
+            results["stages"]["P6"] = run_p6_pilot_review(self.ctx, self.settings, skip_llm=False)
+
+    def _post_full_s4_s5(self, results: dict[str, Any]) -> None:
+        cross = self._check_season_cross_episode("S1")
+        if cross.issues:
+            results.setdefault("cross_episode", {})["S5"] = {
+                "passed": cross.passed,
+                "issues": cross.issues,
+            }
+            if cross.hard_fail:
+                raise PipelineError(f"S5 cross-episode check failed: {cross.issues[:3]}")
+            for issue in cross.issues:
+                log.warning("S5 cross-episode: %s", issue)
+        emit("▶ 忠实度审计：S1")
+        log.info("Running fidelity audit for S1")
+        results["stages"]["fidelity_S1"] = self.run_fidelity_audit("S1")
 
     def _update_must_keep_after_s3(self) -> None:
         path = self.ctx.index_dir / "must_keep_scenes.json"

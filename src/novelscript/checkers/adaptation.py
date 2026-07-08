@@ -5,14 +5,26 @@ from typing import Any
 
 from novelscript.checkers.base import CheckerReport
 
-_ADAPTATION_ACTIONS = ("删除", "合并", "压缩", "前置", "后置", "重写", "adapt:compress", "adapt:merge")
+_ADAPTATION_ACTIONS = (
+    "删除",
+    "合并",
+    "压缩",
+    "前置",
+    "后置",
+    "重写",
+    "adapt:compress",
+    "adapt:merge",
+    "adapt:defer",
+)
+_COMPRESS_ACTIONS = ("删除", "压缩", "adapt:compress", "adapt:merge")
 
 
 def parse_adaptation_notes_md(md_text: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     in_table = False
     for line in md_text.splitlines():
-        if "改编决策" in line or "改编动作" in line:
+        # Section headings only — not table header cells containing「改编动作」
+        if re.match(r"##\s+改编", line.strip()):
             in_table = False
         if not line.strip().startswith("|"):
             continue
@@ -26,15 +38,21 @@ def parse_adaptation_notes_md(md_text: str) -> list[dict[str, Any]]:
             continue
         if cells[0] in ("原著依据", "来源", "章节"):
             continue
-        rows.append(
-            {
-                "source_ref": cells[0],
-                "action": cells[1],
-                "dramatic_reason": cells[2],
-                "serves_engine": cells[3] if len(cells) > 3 else "",
-            }
-        )
+        row: dict[str, Any] = {
+            "source_ref": cells[0],
+            "action": cells[1],
+            "dramatic_reason": cells[2],
+            "serves_engine": cells[3] if len(cells) > 3 else "",
+        }
+        if len(cells) >= 5:
+            row["viewer_substitute"] = cells[3]
+            row["serves_engine"] = cells[4]
+        rows.append(row)
     return rows
+
+
+def _is_compress_action(action: str) -> bool:
+    return any(tok in action for tok in _COMPRESS_ACTIONS)
 
 
 def check_adaptation_notes(
@@ -54,8 +72,21 @@ def check_adaptation_notes(
             has_edit = True
         if not row.get("source_ref"):
             report.add_issue("adaptation_notes: row missing source_ref")
-        if not row.get("dramatic_reason"):
+        reason = str(row.get("dramatic_reason") or "")
+        if not reason:
             report.add_issue("adaptation_notes: row missing dramatic_reason", hard=False)
+        elif _is_compress_action(action) and len(reason) < 8:
+            report.add_issue(
+                f"adaptation_notes: compress row '{row.get('source_ref')}' needs dramatic_reason "
+                "explaining retained emotion function (>=8 chars)"
+            )
+        if _is_compress_action(action) and row.get("viewer_substitute") is not None:
+            substitute = str(row.get("viewer_substitute") or "")
+            if len(substitute) < 4:
+                report.add_issue(
+                    f"adaptation_notes: compress row '{row.get('source_ref')}' missing "
+                    "viewer_substitute (how audience still learns this)"
+                )
 
     if require_edit and not has_edit:
         report.add_issue(

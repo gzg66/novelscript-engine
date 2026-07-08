@@ -736,7 +736,7 @@
       const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gate: pendingGate.gate, resume: true }),
+        body: JSON.stringify({ gate: pendingGate.gate, resume: true, resumeOnly: !!pendingGate.resumeOnly }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "批准失败");

@@ -95,6 +95,12 @@
     fd.append("file", selectedFile);
     fd.append("title", $("#project-title").value.trim());
     fd.append("mode", $("#project-mode").value);
+    if ($("#pilot-test-check").checked) {
+      fd.append("pilot_test", "1");
+      if (!$("#autostart-check").checked) {
+        $("#autostart-check").checked = true;
+      }
+    }
 
     try {
       setUploadStep("create", "正在创建项目并写入原文…");

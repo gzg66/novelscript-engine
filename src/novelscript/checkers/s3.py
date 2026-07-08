@@ -199,6 +199,84 @@ def check_s3_episode_list(
             if scene.get("season_id") and not scene.get("episode_id"):
                 report.add_issue(f"must_keep #{scene.get('id')}: missing episode_id")
 
+    prog = check_episode_progression_chain(episodes)
+    for issue in prog.issues:
+        if prog.hard_fail:
+            report.add_issue(issue)
+        else:
+            report.add_warning(issue)
+
     if not report.hard_fail:
         report.passed = True
     return report
+
+
+_PROGRESSION_STOPWORDS = frozenset(
+    "的 了 与 和 在 被 是 她 他 一 个 这 那 到 从 而 又 也 将 已 再 对 为".split()
+)
+
+
+def _tokenize_progression(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for word in re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z]{3,}", text):
+        if word.lower() not in _PROGRESSION_STOPWORDS and len(word) >= 2:
+            tokens.add(word.lower())
+    return tokens
+
+
+def _progression_overlap(left: str, right: str) -> bool:
+    left_tokens = _tokenize_progression(left)
+    right_tokens = _tokenize_progression(right)
+    if not left_tokens or not right_tokens:
+        return False
+    overlap = left_tokens & right_tokens
+    return len(overlap) >= 1 or any(len(o) >= 3 for o in overlap)
+
+
+def check_episode_progression_chain(
+    episodes: list[dict[str, Any]],
+) -> CheckerReport:
+    """Verify adjacent episodes form a watch chain (hook -> next logline/conflict)."""
+    report = CheckerReport(stage="S3_progression", passed=True)
+    if len(episodes) < 2:
+        return report
+
+    sorted_eps = sorted(episodes, key=lambda e: e.get("episode_id", ""))
+    for prev_ep, next_ep in zip(sorted_eps, sorted_eps[1:]):
+        prev_id = prev_ep.get("episode_id", "?")
+        next_id = next_ep.get("episode_id", "?")
+        cliff = str(prev_ep.get("cliffhanger") or "")
+        next_logline = str(next_ep.get("logline") or "")
+        next_conflict = str(next_ep.get("core_conflict") or "")
+
+        if cliff and next_logline:
+            combined_next = f"{next_logline} {next_conflict}"
+            if not _progression_overlap(cliff, combined_next):
+                report.add_issue(
+                    f"{prev_id}→{next_id}: cliffhanger '{cliff[:30]}' weakly connects to "
+                    f"next logline '{next_logline[:30]}' (progression chain break)",
+                    hard=False,
+                )
+
+        prev_chs = set(prev_ep.get("source_chapters") or [])
+        next_chs = set(next_ep.get("source_chapters") or [])
+        if prev_chs and next_chs:
+            prev_max = max(prev_chs)
+            next_min = min(next_chs)
+            if next_min > prev_max + 1:
+                gap = list(range(prev_max + 1, next_min))
+                gap_names = ",".join(f"Ch{c}" for c in gap)
+                sensitive = any(
+                    kw in f"{cliff} {next_logline} {next_conflict}".lower()
+                    for kw in ("desmond", "戴斯蒙德", "tournament", "大赛", "ribbon", "丝带", "crown", "金冠")
+                )
+                if sensitive:
+                    report.add_issue(
+                        f"{prev_id}→{next_id}: skipped {gap_names} but next episode references "
+                        "content from gap (EP08→EP09 pattern)"
+                    )
+
+    if not report.hard_fail:
+        report.passed = True
+    return report
+
