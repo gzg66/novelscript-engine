@@ -6,17 +6,32 @@ from typing import Any
 from novelscript.checkers.base import CheckerReport
 
 # Production bar — intentionally stricter than dragons-ice sample fixtures.
-MIN_SCENE_COUNT_EP01 = 5
+MIN_SCENE_COUNT_EP01 = 4
+MAX_SCENE_COUNT_EP01 = 5
 MIN_BEATS_PER_SCENE = 2
 MIN_ACTION_CHARS = 10
 MIN_PRESENTATION_HINT_CHARS = 12
-MIN_EP_DURATION_SEC = 100
-MAX_EP_DURATION_SEC = 320
+from novelscript.index.episode_spec import build_episode_spec, resolve_episode_spec
+
+DEFAULT_DURATION_SEC = 150
+DEFAULT_TOLERANCE_PCT = 15
+DEFAULT_HOOK_SEC = 15
+MIN_EP_DURATION_SEC = 128  # 150s - 15%
+MAX_EP_DURATION_SEC = 172  # 150s + 15%
 VAGUE_HINTS = ("画面", "镜头", "展示", "呈现", "一般", "普通")
-ACTIVE_VERBS = ("选择", "拒绝", "冲", "推", "抓", "砸", "跑", "转身", "抬头", "攥", "挡", "冲出去")
+ACTIVE_VERBS = (
+    "选择", "拒绝", "冲", "推", "抓", "砸", "跑", "转身", "抬头", "攥", "挡", "冲出去",
+    "踹", "划", "游", "尖叫", "扯", "撕", "抠",
+    "kick", "push", "grab", "run", "turn", "swim", "refuse", "punch", "slash", "strike",
+)
 
 
-def check_script_quality(script: dict[str, Any], *, tier: str = "production") -> CheckerReport:
+def check_script_quality(
+    script: dict[str, Any],
+    *,
+    tier: str = "production",
+    episode_spec: dict[str, Any] | None = None,
+) -> CheckerReport:
     """Quality gate above structural S5 checker. tier=baseline is looser (fixture/dev)."""
     report = CheckerReport(stage="quality", passed=True)
     if tier == "baseline":
@@ -26,7 +41,9 @@ def check_script_quality(script: dict[str, Any], *, tier: str = "production") ->
     ep_id = script.get("episode_id", "")
 
     if ep_id.endswith("01") and len(scenes) < MIN_SCENE_COUNT_EP01:
-        report.add_issue(f"EP01 needs >={MIN_SCENE_COUNT_EP01} scenes (sample has 6; do not compress)")
+        report.add_issue(f"EP01 needs >={MIN_SCENE_COUNT_EP01} scenes (pilot: one clear story)")
+    if ep_id.endswith("01") and len(scenes) > MAX_SCENE_COUNT_EP01:
+        report.add_issue(f"EP01 has {len(scenes)} scenes; pilot max {MAX_SCENE_COUNT_EP01} (defer subplots)")
 
     total_duration = 0
     active_choices = 0
@@ -57,7 +74,7 @@ def check_script_quality(script: dict[str, Any], *, tier: str = "production") ->
             if hint in VAGUE_HINTS or (len(hint) < 20 and hint.endswith("画面")):
                 report.add_issue(f"{scene.get('scene_id')} beat {beat.get('beat_id')}: presentation_hint too generic")
 
-            if "(内心)" in dialogue and len(action) < MIN_ACTION_CHARS:
+            if re.search(r"\(V\.O\.\)|\(inner\)|\(内心\)", dialogue, re.I) and len(action) < MIN_ACTION_CHARS:
                 inner_only_beats += 1
 
             if any(v in action for v in ACTIVE_VERBS):
@@ -67,13 +84,38 @@ def check_script_quality(script: dict[str, Any], *, tier: str = "production") ->
                 report.add_issue(f"{scene.get('scene_id')} beat {beat.get('beat_id')}: psych verb in prose (externalize)")
 
     if inner_only_beats > 0:
-        report.add_issue(f"{inner_only_beats} beat(s) are inner-voice only without strong action")
+        report.add_issue(f"{inner_only_beats} beat(s) are V.O.-only without strong action")
+
+    from novelscript.checkers.dialogue import check_english_dialogue
+
+    all_beats: list[dict[str, Any]] = []
+    for scene in scenes:
+        all_beats.extend(scene.get("beats") or [])
+    dial = check_english_dialogue(all_beats, stage="quality")
+    for issue in dial.issues:
+        report.add_issue(issue)
 
     if active_choices < 2:
         report.add_issue("Protagonist needs >=2 beats with active physical choice (三成立·主角)")
 
-    if total_duration < MIN_EP_DURATION_SEC or total_duration > MAX_EP_DURATION_SEC:
-        report.add_issue(f"Episode duration sum {total_duration}s outside {MIN_EP_DURATION_SEC}-{MAX_EP_DURATION_SEC}s")
+    spec = episode_spec or build_episode_spec()
+    min_sec = int(spec.get("min_sec", MIN_EP_DURATION_SEC))
+    max_sec = int(spec.get("max_sec", MAX_EP_DURATION_SEC))
+    if total_duration < min_sec or total_duration > max_sec:
+        target = spec.get("duration_sec", DEFAULT_DURATION_SEC)
+        report.add_issue(
+            f"Episode duration sum {total_duration}s outside {min_sec}-{max_sec}s (target {target}s)"
+        )
+
+    hook_sec = int(spec.get("hook_sec", DEFAULT_HOOK_SEC))
+    if scenes:
+        last_scene = scenes[-1]
+        last_dur = int(last_scene.get("duration_target_sec") or 0)
+        if last_dur > 0 and last_dur < hook_sec - 5:
+            report.add_issue(
+                f"Final scene duration {last_dur}s too short for hook budget ({hook_sec}s)",
+                hard=False,
+            )
 
     cliff = script.get("cliffhanger") or ""
     if not cliff or len(cliff) < 8:

@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from novelscript.checkers.base import CheckerReport
+from novelscript.index.episode_spec import build_episode_spec, duration_in_spec
 
 _BEAT_HEADER_MARKERS = (
     "beat",
@@ -61,6 +62,7 @@ def _parse_table_rows(lines: list[str], start: int) -> tuple[list[dict[str, Any]
 
         ext_idx = _column_index(headers, "外化", "画面动作", "画面")
         func_idx = _column_index(headers, "戏剧功能", "功能")
+        dur_idx = _column_index(headers, "时长", "duration")
         hook_idx = _column_index(headers, "钩子", "hook")
         info_idx = _column_index(headers, "信息差", "info_gap", "信息")
         externalization = cells[ext_idx] if ext_idx is not None and ext_idx < len(cells) else ""
@@ -71,6 +73,11 @@ def _parse_table_rows(lines: list[str], start: int) -> tuple[list[dict[str, Any]
         if not dramatic_function and len(cells) > 4:
             dramatic_function = cells[4]
         hook_anchor = cells[hook_idx] if hook_idx is not None and hook_idx < len(cells) else None
+        duration_sec = None
+        if dur_idx is not None and dur_idx < len(cells):
+            dur_match = re.search(r"(\d+)", cells[dur_idx])
+            if dur_match:
+                duration_sec = int(dur_match.group(1))
         if hook_anchor is None and dramatic_function and "钩" in dramatic_function:
             hook_anchor = dramatic_function
 
@@ -81,6 +88,7 @@ def _parse_table_rows(lines: list[str], start: int) -> tuple[list[dict[str, Any]
                 "info_gap": info_gap,
                 "externalization": externalization,
                 "hook_anchor": hook_anchor,
+                "duration_sec": duration_sec,
             }
         )
         idx += 1
@@ -116,6 +124,7 @@ def parse_beat_sheet_md(md_text: str, *, episode_id: str = "S1E01") -> dict[str,
     episode_goal = ""
     emotion_curve = ""
     hook_landing = ""
+    duration_budget_sec = None
 
     for line in section:
         stripped = line.strip()
@@ -127,6 +136,10 @@ def parse_beat_sheet_md(md_text: str, *, episode_id: str = "S1E01") -> dict[str,
             emotion_curve = stripped.split("：", 1)[-1].split(":", 1)[-1].strip()
         if "钩子落点" in stripped or "集尾钩子" in stripped or "hook_landing" in stripped.lower():
             hook_landing = stripped.split("：", 1)[-1].split(":", 1)[-1].strip().strip("*")
+        if "时长预算" in stripped or "duration_budget" in stripped.lower():
+            dur_match = re.search(r"(\d+)", stripped)
+            if dur_match:
+                duration_budget_sec = int(dur_match.group(1))
 
     beats: list[dict[str, Any]] = []
     idx = 0
@@ -152,16 +165,31 @@ def parse_beat_sheet_md(md_text: str, *, episode_id: str = "S1E01") -> dict[str,
         "episode_goal": episode_goal,
         "emotion_curve": emotion_curve,
         "hook_landing": hook_landing,
+        "duration_budget_sec": duration_budget_sec,
         "beats": unique_beats,
     }
 
 
-def check_s4_beat_sheet(data: dict[str, Any]) -> CheckerReport:
+def check_s4_beat_sheet(
+    data: dict[str, Any],
+    *,
+    episode_spec: dict[str, Any] | None = None,
+    adaptation_notes: list[dict[str, Any]] | None = None,
+) -> CheckerReport:
     report = CheckerReport(stage="S4", passed=True)
     beats = data.get("beats") or []
     n = len(beats)
     if n < 4 or n > 8:
         report.add_issue(f"Beat count {n} not in range 4-8")
+    from novelscript.checkers.dialogue import check_english_dialogue, check_narrative_clarity
+
+    dial = check_english_dialogue(beats)
+    for issue in dial.issues:
+        report.add_issue(issue)
+    narr = check_narrative_clarity(beats, adaptation_notes=adaptation_notes)
+    for issue in narr.issues:
+        report.add_issue(issue)
+
     for beat in beats:
         if not beat.get("externalization"):
             report.add_issue(f"Beat {beat.get('beat_id')}: missing externalization")
@@ -169,6 +197,33 @@ def check_s4_beat_sheet(data: dict[str, Any]) -> CheckerReport:
             report.add_issue(f"Beat {beat.get('beat_id')}: missing dramatic_function")
         if not beat.get("info_gap"):
             report.add_warning(f"Beat {beat.get('beat_id')}: missing info_gap")
+
+    spec = episode_spec or build_episode_spec()
+    beat_durations = [int(b["duration_sec"]) for b in beats if b.get("duration_sec")]
+    if beat_durations:
+        total = sum(beat_durations)
+        budget = data.get("duration_budget_sec") or spec["duration_sec"]
+        if total != int(budget):
+            report.add_issue(f"Beat durations sum {total}s != budget {budget}s")
+        if not duration_in_spec(total, spec):
+            report.add_issue(f"Beat durations sum {total}s outside {spec['min_sec']}-{spec['max_sec']}s")
+    else:
+        report.add_warning("Beat sheet missing per-beat duration column")
+
+    budget = data.get("duration_budget_sec")
+    if budget is not None and not duration_in_spec(int(budget), spec):
+        report.add_issue(f"duration_budget_sec {budget}s outside spec range")
+
+    if adaptation_notes is not None:
+        from novelscript.checkers.adaptation import check_adaptation_notes
+
+        adapt_report = check_adaptation_notes(adaptation_notes)
+        for issue in adapt_report.issues:
+            if adapt_report.hard_fail:
+                report.add_issue(issue)
+            else:
+                report.add_warning(issue)
+
     if not report.hard_fail:
         report.passed = True
     return report

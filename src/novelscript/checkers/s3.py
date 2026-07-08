@@ -4,6 +4,31 @@ import re
 from typing import Any
 
 from novelscript.checkers.base import CheckerReport
+from novelscript.index.episode_spec import build_episode_spec, duration_in_spec
+
+_SINGLE_CHAPTER_RATIO_THRESHOLD = 0.6
+_VISUAL_HOOK_KEYWORDS = (
+    "特写",
+    "入画",
+    "异变",
+    "镜头",
+    "手",
+    "眼",
+    "转身",
+    "定格",
+    "慢镜",
+    "逼近",
+    "裂缝",
+    "血",
+    "冰",
+    "火",
+    "影",
+    "门",
+    "屏",
+    "close",
+    "freeze",
+    "zoom",
+)
 
 
 def parse_episode_list_md(md_text: str, *, season_id: str = "S1") -> list[dict[str, Any]]:
@@ -22,6 +47,20 @@ def parse_episode_list_md(md_text: str, *, season_id: str = "S1") -> list[dict[s
         if not ep_match:
             continue
         ep_num = int(ep_match.group(1))
+
+        if len(cells) >= 8:
+            episode_change = cells[5]
+            duration_raw = cells[6]
+            cliffhanger = cells[7]
+        else:
+            episode_change = ""
+            duration_raw = ""
+            cliffhanger = cells[5]
+            if len(cells) > 6:
+                duration_raw = cells[6]
+
+        duration_target_sec = _parse_duration_sec(duration_raw)
+
         episodes.append(
             {
                 "episode_id": f"{season_id}E{ep_num:02d}",
@@ -30,11 +69,20 @@ def parse_episode_list_md(md_text: str, *, season_id: str = "S1") -> list[dict[s
                 "source_chapters": _parse_chapters(cells[2]),
                 "core_conflict": cells[3],
                 "protagonist_choice": cells[4],
-                "cliffhanger": cells[5],
+                "episode_change": episode_change,
+                "duration_target_sec": duration_target_sec,
+                "cliffhanger": cliffhanger,
                 "serves_engines": _infer_engines(cells[1] + cells[3]),
             }
         )
     return episodes
+
+
+def _parse_duration_sec(text: str) -> int | None:
+    if not text:
+        return None
+    match = re.search(r"(\d+)", text)
+    return int(match.group(1)) if match else None
 
 
 def _parse_chapters(text: str) -> list[int]:
@@ -58,6 +106,11 @@ def _infer_engines(text: str) -> list[str]:
     return engines[:2] if engines else ["逆袭"]
 
 
+def _has_visual_hook(text: str) -> bool:
+    lowered = text.lower()
+    return any(kw in text or kw in lowered for kw in _VISUAL_HOOK_KEYWORDS)
+
+
 _PASSIVE_CHOICE_RE = re.compile(r"被(救|发现|安排|逼|迫)|被迫|无意间发现")
 
 
@@ -66,21 +119,49 @@ def check_s3_episode_list(
     *,
     season_chapters: list[int],
     must_keep: list[dict[str, Any]] | None = None,
+    episode_spec: dict[str, Any] | None = None,
+    single_chapter_ratio_threshold: float = _SINGLE_CHAPTER_RATIO_THRESHOLD,
 ) -> CheckerReport:
     report = CheckerReport(stage="S3", passed=True)
     season_set = set(season_chapters)
+    spec = episode_spec or build_episode_spec()
 
     if not episodes:
         report.add_issue("No episodes parsed")
         return report
 
     covered: set[int] = set()
+    single_chapter_eps = 0
+    merged_eps = 0
+
     for ep in episodes:
         required = ("episode_id", "logline", "source_chapters", "core_conflict", "protagonist_choice", "cliffhanger")
         for field in required:
             if not ep.get(field):
                 report.add_issue(f"{ep.get('episode_id')}: missing {field}")
+
+        change = str(ep.get("episode_change") or "")
+        if len(change) < 8:
+            report.add_issue(f"{ep.get('episode_id')}: episode_change too short or missing (need >=8 chars)")
+
+        dur = ep.get("duration_target_sec")
+        if dur is None:
+            report.add_issue(f"{ep.get('episode_id')}: missing duration_target_sec")
+        elif not duration_in_spec(int(dur), spec):
+            report.add_issue(
+                f"{ep.get('episode_id')}: duration {dur}s outside {spec['min_sec']}-{spec['max_sec']}s"
+            )
+
+        cliff = str(ep.get("cliffhanger") or "")
+        if cliff and not _has_visual_hook(cliff):
+            report.add_issue(f"{ep.get('episode_id')}: cliffhanger lacks visual hook markers", hard=False)
+
         chs = ep.get("source_chapters") or []
+        if len(chs) == 1:
+            single_chapter_eps += 1
+        elif len(chs) > 1:
+            merged_eps += 1
+
         season_max = max(season_set) if season_set else 0
         for ch in chs:
             if ch not in season_set:
@@ -94,8 +175,20 @@ def check_s3_episode_list(
         choice = str(ep.get("protagonist_choice") or "")
         if choice and _PASSIVE_CHOICE_RE.search(choice):
             report.add_issue(f"{ep.get('episode_id')}: passive protagonist choice", hard=False)
-        if choice and "不可逆" not in str(ep.get("logline", "")) + choice + str(ep.get("cliffhanger", "")):
-            report.add_warning(f"{ep.get('episode_id')}: no explicit irreversible change marker")
+
+    total = len(episodes)
+    if total > 0 and single_chapter_eps / total > single_chapter_ratio_threshold:
+        report.add_issue(
+            f"Too many single-chapter episodes ({single_chapter_eps}/{total}); "
+            "merge by conflict density instead of 1:1 chapter slicing"
+        )
+
+    season_span = len(season_set)
+    if season_span > 0 and total >= season_span * 0.9 and merged_eps == 0:
+        report.add_issue(
+            f"Episode count {total} ≈ chapter span {season_span} with no merged episodes; "
+            "likely chapter-slice division"
+        )
 
     if must_keep:
         season_set = set(season_chapters)

@@ -578,9 +578,24 @@
     });
   }
 
+  /** Map common LaTeX inline commands to Unicode (marked has no math renderer). */
+  const LATEX_INLINE_SYMBOLS = {
+    rightarrow: "→",
+    leftarrow: "←",
+    Rightarrow: "⇒",
+    Leftrightarrow: "⇔",
+    to: "→",
+    gets: "→",
+  };
+
+  function normalizeLatexInline(md) {
+    return md.replace(/\$\s*\\([a-zA-Z]+)\s*\$/g, (match, cmd) => LATEX_INLINE_SYMBOLS[cmd] ?? match);
+  }
+
   /** Fix LLM markdown quirks (e.g. "## ## Title") before parsing. */
   function normalizeMarkdown(md) {
     let out = md.replace(/\r\n/g, "\n");
+    out = normalizeLatexInline(out);
     out = out.replace(/^(\|.*\|)\s*$/gm, (line) => line.replace(/<br\s*\/?>/gi, " · "));
     let prev;
     do {

@@ -201,7 +201,14 @@ def check_s5_script(
         if not scene.get("value_change") and "→" not in str(scene.get("emotion_arc", "")):
             report.add_warning(f"{scene.get('scene_id')}: missing scene value change")
 
-        for beat in scene.get("beats") or []:
+        scene_beats = scene.get("beats") or []
+        from novelscript.checkers.dialogue import check_english_dialogue
+
+        dial = check_english_dialogue(scene_beats, scene_id=str(scene.get("scene_id", "")))
+        for issue in dial.issues:
+            report.add_issue(issue)
+
+        for beat in scene_beats:
             text_blob = f"{beat.get('action', '')} {beat.get('dialogue', '')} {beat.get('sound', '')}"
             for pattern in PSYCH_NARRATION_RE:
                 if pattern.search(text_blob):
@@ -225,6 +232,15 @@ def check_s5_script(
         for scene in must_keep:
             if scene.get("episode_id") == ep_id and not scene.get("scene_id"):
                 report.add_issue(f"must_keep #{scene.get('id')}: missing scene_id on episode {ep_id}")
+
+    all_beats: list[dict[str, Any]] = []
+    for scene in scenes:
+        all_beats.extend(scene.get("beats") or [])
+    from novelscript.checkers.dialogue import check_narrative_clarity
+
+    narr = check_narrative_clarity(all_beats)
+    for issue in narr.issues:
+        report.add_issue(issue)
 
     if not report.hard_fail:
         report.passed = True

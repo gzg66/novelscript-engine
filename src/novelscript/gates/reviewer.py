@@ -40,6 +40,27 @@ _CHINESE_REVIEW_STAGES = frozenset(
     {"s0_engine", "s2_season_map", "p1_source_cards", "p3_strategy", "s4_beats"}
 )
 
+S3_REVIEW_SYSTEM = """你是竖屏短剧分集策划审校员。检查分集清单是否为「可拍单元」而非「章节切片」。
+
+强制「三闭环」：
+1. 冲突闭环：每集有明确核心冲突，不是设定说明集
+2. 变化闭环：每集有不可逆的状态/关系/信息变化
+3. 钩子闭环：集尾钩子视觉化，给观众明确「看下集」理由
+
+额外检查：
+- 是否「一章一集」流水线切分（坏）
+- 是否只推设定不推人（水集）
+- 时长目标是否在规格容差内
+
+输出 ONLY JSON：
+{
+  "verdict": "pass|revise",
+  "issues": ["引用 EPxx 的具体问题"],
+  "three_established": {"conflict": true, "change": true, "hook": true},
+  "beats_sample_quality": "meets"
+}
+任一闭环不成立或明显水集时 verdict 必须为 revise。"""
+
 
 @dataclass
 class ReviewResult:
@@ -64,6 +85,8 @@ def llm_review(
 ) -> ReviewResult:
     if pilot:
         system = PILOT_REVIEW_SYSTEM
+    elif stage.startswith("s3_"):
+        system = S3_REVIEW_SYSTEM
     elif stage in _CHINESE_REVIEW_STAGES:
         system = CHINESE_REVIEW_SYSTEM
     else:

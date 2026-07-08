@@ -8,10 +8,19 @@ from novelscript.index.chapters import Chapter, novel_preamble, split_chapters
 from novelscript.index.must_keep import load_must_keep
 from novelscript.pipeline.context import ProjectContext
 
-_FIDELITY_RULE = (
-    "改编铁律：节拍/场次必须源自下方「原著摘录」中的事件与对白；"
-    "不得发明摘录中不存在的情节；不得把其他章节的名场面提前到本集。"
+_ANCHOR_FIDELITY = (
+    "【必保锚点保真】名场面必保清单（mk_*）与引擎代表节点：因果、功能、情感兑付不可改；"
+    "不得发明锚点中不存在的情节；不得把其他章节的名场面提前到本集。"
+    "若摘录中 A 导致 B（如「他人救援」后才「能力失控」），不得合并、倒置或把外部救援改写为能力自救。"
 )
+
+_ADAPTATION_LICENSE = (
+    "【非锚点精编许可】非必保素材：可删独白/灌水、合并场次、压缩无效对话；"
+    "须保留主事件链并服务本集故事引擎；删改须在改编决策表记录并在来源索引标注 adapt:compress / adapt:merge。"
+)
+
+# Legacy alias for tests expecting single rule block
+_FIDELITY_RULE = f"{_ANCHOR_FIDELITY}\n{_ADAPTATION_LICENSE}"
 
 
 class SourceContextError(ValueError):
@@ -211,10 +220,93 @@ def load_chapter_range_excerpt(
     )
 
 
-def format_chapter_source_block(excerpt: str, *, title: str = "原著摘录") -> str:
+def format_chapter_source_block(
+    excerpt: str,
+    *,
+    title: str = "原著参考摘录",
+    include_adaptation_license: bool = True,
+) -> str:
     if not excerpt.strip():
         return ""
-    return f"## {title}\n\n{_FIDELITY_RULE}\n\n{excerpt}"
+    rules = _ANCHOR_FIDELITY
+    if include_adaptation_license:
+        rules = f"{_ANCHOR_FIDELITY}\n{_ADAPTATION_LICENSE}"
+    return f"## {title}\n\n{rules}\n\n{excerpt}"
+
+
+def extract_strategy_allowances(strategy_md: str) -> str:
+    """Extract P3 允许改动 block for S3 prompts."""
+    if not strategy_md.strip():
+        return ""
+    lines = ["## 创作策略 · 允许改动摘要", ""]
+    in_allowed = False
+    for line in strategy_md.splitlines():
+        if "允许改动" in line and "禁止" not in line:
+            in_allowed = True
+            if line.startswith("##"):
+                lines.append(line)
+            continue
+        if in_allowed:
+            if line.startswith("## ") and "允许" not in line:
+                break
+            lines.append(line)
+    if len(lines) <= 2:
+        return ""
+    return "\n".join(lines)
+
+
+def format_droppable_subplots_block(ctx: ProjectContext) -> str:
+    """S0 裁决为删除/合并的冗余支线，供 S3+ 精编参考。"""
+    summary = format_source_cards_summary(ctx, max_items=40)
+    if "冗余卡（已裁决删除" not in summary:
+        return ""
+    lines = ["## 可删/可合并支线（S0 裁决）", ""]
+    capture = False
+    for line in summary.splitlines():
+        if "冗余卡（已裁决删除" in line:
+            capture = True
+            continue
+        if capture:
+            if line.startswith("### ") and "冗余" not in line:
+                break
+            if line.strip():
+                lines.append(line)
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
+def format_adaptation_input_bundle(
+    ctx: ProjectContext,
+    *,
+    excerpt: str,
+    excerpt_title: str = "原著参考摘录",
+    season_id: str | None = None,
+    episode_id: str | None = None,
+    chapter_numbers: list[int] | None = None,
+    strategy_md: str = "",
+) -> str:
+    """Layered fidelity input: anchors + droppable hints + reference excerpt."""
+    parts: list[str] = []
+    mk = format_must_keep_block(
+        load_must_keep_scenes(ctx),
+        season_id=season_id,
+        episode_id=episode_id,
+        chapter_numbers=chapter_numbers,
+    )
+    if mk:
+        parts.append(mk.replace("名场面必保清单", "改编锚点 · 名场面必保清单"))
+    allowances = extract_strategy_allowances(strategy_md)
+    if allowances:
+        parts.append(allowances)
+    forbidden = extract_strategy_constraints(strategy_md)
+    if forbidden:
+        parts.append(forbidden)
+    droppable = format_droppable_subplots_block(ctx)
+    if droppable:
+        parts.append(droppable)
+    source = format_chapter_source_block(excerpt, title=excerpt_title)
+    if source:
+        parts.append(source)
+    return "\n\n".join(parts)
 
 
 def format_source_block(src: dict[str, str], *, include_characters: bool = True, compact: bool = False) -> str:

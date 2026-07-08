@@ -12,12 +12,14 @@ from novelscript.logging import get_logger
 from novelscript.pipeline.cancel import cancel_check, check_cancelled
 from novelscript.pipeline.context import ProjectContext
 from novelscript.progress import emit
+from novelscript.index.episode_spec import format_episode_spec_block, resolve_episode_spec
 from novelscript.index.season_plan import (
     check_cross_stage_season_consistency,
     resolve_season_count,
 )
 from novelscript.stages.source import (
     build_review_context,
+    format_adaptation_input_bundle,
     format_chapter_source_block,
     format_chapter_toc,
     format_must_keep_block,
@@ -55,13 +57,17 @@ STAGE_FORMAT_HINTS: dict[str, str] = {
         "须含「时间线鱼骨图」「多线推进表」「名场面落点」三节标题。"
     ),
     "s3_episodes": (
-        "格式提醒：全文中文；表头必须是「集|一句话集情|覆盖|核心冲突|主角的选择|集尾钩子」；"
-        "集号 **EP01** 格式；覆盖列 Ch1 或 Ch5–6；禁止英文 Logline/Conflict 列名。"
+        "格式提醒：全文中文；表头八列「集|一句话集情|覆盖|核心冲突|主角的选择|本集变化|时长目标|集尾钩子」；"
+        "集号 **EP01** 格式；覆盖列是素材索引 Ch1 或 Ch5–7；禁止默认一章一集；时长如 150s。"
     ),
-    "s4_beats": "格式提醒：全文中文；beat 须含外化处理；集尾留视觉悬念。",
+    "s4_beats": (
+        "格式提醒：元数据中文；对白/声音列全部英文（Freya (V.O.): / SFX:）；"
+        "beat 须含外化处理与时长列；duration_budget_sec 默认 150s；"
+        "文末须有 ## 改编决策记录（至少一条 adapt:*）；新角色/道具无铺垫则 adapt:defer。"
+    ),
     "s5_script": (
-        "格式提醒：全文中文；关键英文对白/独白保留原文；"
-        "画面动作可拍；集尾须视觉化钩子。"
+        "格式提醒：元数据中文；对白/声音列全部英文；场次时长之和须在单集规格容差内（目标150s）；"
+        "最后一场 hook ≥ hook_sec；EP01 不写家族/戒指线；必保锚点保真。"
     ),
 }
 
@@ -165,7 +171,8 @@ def _run_stage_loop(
             ep_id = stage.replace("s5_", "", 1)
             ep_num = int(ep_id.split("E")[-1])
             script = parse_script_md(text, episode_id=ep_id, global_episode_id=f"EP{ep_num:03d}")
-            q = check_script_quality(script, tier="production")
+            spec = resolve_episode_spec(ctx)
+            q = check_script_quality(script, tier="production", episode_spec=spec)
             if not passes_gate(q):
                 last_report = q
         audit = {"attempt": attempt, "passed": passes_gate(last_report), "issues": last_report.issues}
@@ -415,8 +422,8 @@ def run_s3_episodes(ctx: ProjectContext, season_id: str, settings: AppSettings) 
     from novelscript.checkers.base import CheckerReport
     from novelscript.checkers.s2 import parse_season_map_md
     from novelscript.checkers.s3 import check_s3_episode_list, parse_episode_list_md
-    from novelscript.stages.source import extract_strategy_constraints
 
+    episode_spec = resolve_episode_spec(ctx)
     s2 = (ctx.root / "S2_season_map.md").read_text(encoding="utf-8")
     seasons = parse_season_map_md(s2)
     season = next((s for s in seasons if s["season_id"] == season_id), None)
@@ -428,6 +435,7 @@ def run_s3_episodes(ctx: ProjectContext, season_id: str, settings: AppSettings) 
             eps,
             season_chapters=ch_range,
             must_keep=load_must_keep_scenes(ctx) or None,
+            episode_spec=episode_spec,
         )
 
     out = ctx.season_dir(season_id) / "episode_list.md"
@@ -442,30 +450,29 @@ def run_s3_episodes(ctx: ProjectContext, season_id: str, settings: AppSettings) 
     bible = bible_path.read_text(encoding="utf-8") if bible_path.exists() else ""
     strategy_path = ctx.root / "adaptation_strategy.md"
     strategy = strategy_path.read_text(encoding="utf-8") if strategy_path.exists() else ""
-    parts = [f"S2 季图谱：\n{s2[:4000]}"]
+    parts = [format_episode_spec_block(episode_spec), f"S2 季图谱：\n{s2[:4000]}"]
     if s0:
         parts.append(f"S0 故事引擎：\n{s0[:2000]}")
     if premise:
         parts.append(f"S1 系列命题：\n{premise[:2000]}")
     if bible:
         parts.append(f"S1 人物圣经：\n{bible[:3000]}")
-    constraints = extract_strategy_constraints(strategy)
-    if constraints:
-        parts.append(constraints)
-    elif strategy:
+    if strategy:
         parts.append(f"创作策略：\n{strategy[:4000]}")
-    if season_excerpt:
-        parts.append(format_chapter_source_block(season_excerpt, title=f"{season_id} 原著摘录（Ch{ch_start}–{ch_end}）"))
-    must_keep = format_must_keep_block(
-        load_must_keep_scenes(ctx),
+    adapt_bundle = format_adaptation_input_bundle(
+        ctx,
+        excerpt=season_excerpt,
+        excerpt_title=f"{season_id} 原著参考摘录（Ch{ch_start}–{ch_end}）",
         season_id=season_id,
         chapter_numbers=ch_range,
+        strategy_md=strategy,
     )
-    if must_keep:
-        parts.append(must_keep)
+    if adapt_bundle:
+        parts.append(adapt_bundle)
     parts.append(
         f"请为 **{season_id}** 输出 episode_list.md，覆盖第 {ch_start}–{ch_end} 章。"
-        "分集必须忠实于上述原著摘录中的事件顺序，不得发明摘录中不存在的情节。"
+        "按故事引擎与冲突密度切分为可拍单元，禁止默认一章一集。"
+        "必保锚点须落入合适集数；非锚点素材可合并删减。"
         "全文中文；若引用原著对白或独白，保留英文原文。"
     )
     return _run_stage_loop(
@@ -480,16 +487,30 @@ def run_s3_episodes(ctx: ProjectContext, season_id: str, settings: AppSettings) 
     )
 
 
+def _persist_adaptation_notes(beat_text: str, notes_path: Path) -> None:
+    from novelscript.checkers.adaptation import extract_adaptation_section
+
+    section = extract_adaptation_section(beat_text)
+    if section.strip():
+        notes_path.write_text(section.strip() + "\n", encoding="utf-8")
+
+
 def run_s4_beats(ctx: ProjectContext, season_id: str, ep_num: int, settings: AppSettings) -> dict[str, Any]:
+    from novelscript.checkers.adaptation import extract_adaptation_section, parse_adaptation_notes_md
     from novelscript.checkers.base import CheckerReport
     from novelscript.checkers.s3 import parse_episode_list_md
     from novelscript.checkers.s4 import check_s4_beat_sheet, parse_beat_sheet_md
 
     ep_id = f"{season_id}E{ep_num:02d}"
+    episode_spec = resolve_episode_spec(ctx)
+    ep_dir = ctx.episode_dir(season_id, ep_num)
+    notes_path = ep_dir / "adaptation_notes.md"
 
     def checker(text: str) -> CheckerReport:
         data = parse_beat_sheet_md(text, episode_id=ep_id)
-        return check_s4_beat_sheet(data)
+        adapt_section = extract_adaptation_section(text)
+        notes = parse_adaptation_notes_md(adapt_section) if adapt_section else []
+        return check_s4_beat_sheet(data, episode_spec=episode_spec, adaptation_notes=notes)
 
     ep_list = (ctx.season_dir(season_id) / "episode_list.md").read_text(encoding="utf-8")
     ep_row = next(
@@ -497,55 +518,80 @@ def run_s4_beats(ctx: ProjectContext, season_id: str, ep_num: int, settings: App
         None,
     )
     source_chs = (ep_row or {}).get("source_chapters") or []
-    source_block = format_chapter_source_block(
-        load_episode_chapter_texts(ctx, source_chs),
-        title=f"{ep_id} 本集原著摘录",
-    )
-    parts = [f"分集清单：\n{ep_list}"]
-    must_keep = format_must_keep_block(
-        load_must_keep_scenes(ctx),
+    strategy_path = ctx.root / "adaptation_strategy.md"
+    strategy = strategy_path.read_text(encoding="utf-8") if strategy_path.exists() else ""
+    adapt_bundle = format_adaptation_input_bundle(
+        ctx,
+        excerpt=load_episode_chapter_texts(ctx, source_chs),
+        excerpt_title=f"{ep_id} 本集原著参考摘录",
         episode_id=ep_id,
         chapter_numbers=source_chs,
+        strategy_md=strategy,
     )
-    if must_keep:
-        parts.append(must_keep)
-    if source_block:
-        parts.append(source_block)
+    ep_duration = (ep_row or {}).get("duration_target_sec") or episode_spec["duration_sec"]
+    parts = [
+        format_episode_spec_block(episode_spec),
+        f"本集时长预算：**{ep_duration} 秒**",
+        f"分集清单：\n{ep_list}",
+    ]
+    if adapt_bundle:
+        parts.append(adapt_bundle)
     parts.append(
-        f"请为 {ep_id} 输出 beat_sheet.md。全文中文；引用对白/独白时保留英文原文。"
-        "节拍必须对应本集原著摘录，不得编造或提前其他章节名场面。"
+        f"请为 {ep_id} 输出 beat_sheet.md（含文末 ## 改编决策记录）。元数据中文；对白/声音列全部英文。"
+        "必保锚点严格保真；非锚点可精编删减并在改编决策表记录。"
     )
-    return _run_stage_loop(
+    result = _run_stage_loop(
         ctx,
         settings,
         stage=f"s4_{ep_id}",
-        out_path=ctx.episode_dir(season_id, ep_num) / "beat_sheet.md",
+        out_path=ep_dir / "beat_sheet.md",
         checker=checker,
         system_prompt=_load_prompt("s4_beats/v1.md"),
         user_prompt="\n\n".join(parts),
         temperature=0.5,
         allow_best_effort=False,
     )
+    beat_path = ep_dir / "beat_sheet.md"
+    if beat_path.exists():
+        _persist_adaptation_notes(beat_path.read_text(encoding="utf-8"), notes_path)
+    return result
 
 
 def run_s5_script(ctx: ProjectContext, season_id: str, ep_num: int, settings: AppSettings) -> dict[str, Any]:
+    from novelscript.checkers.adaptation import check_adaptation_notes, parse_adaptation_notes_md
     from novelscript.checkers.base import CheckerReport
     from novelscript.checkers.s3 import parse_episode_list_md
     from novelscript.checkers.s5 import check_s5_script, parse_script_md
 
     ep_id = f"{season_id}E{ep_num:02d}"
     global_id = f"EP{ep_num:03d}"
-    out_md = ctx.episode_dir(season_id, ep_num) / "script.md"
-    out_json = ctx.episode_dir(season_id, ep_num) / "script.json"
+    episode_spec = resolve_episode_spec(ctx)
+    ep_dir = ctx.episode_dir(season_id, ep_num)
+    out_md = ep_dir / "script.md"
+    out_json = ep_dir / "script.json"
+    notes_path = ep_dir / "adaptation_notes.md"
 
     def checker(text: str) -> CheckerReport:
         script = parse_script_md(text, episode_id=ep_id, global_episode_id=global_id)
-        return check_s5_script(script)
+        report = check_s5_script(script, episode_chapters=source_chs)
+        if notes_path.exists():
+            notes = parse_adaptation_notes_md(notes_path.read_text(encoding="utf-8"))
+            adapt = check_adaptation_notes(notes)
+            for issue in adapt.issues:
+                if adapt.hard_fail:
+                    report.add_issue(issue)
+                else:
+                    report.add_warning(issue)
+        else:
+            report.add_issue(f"{ep_id}: missing adaptation_notes.md (produce in S4)")
+        return report
 
-    beats = (ctx.episode_dir(season_id, ep_num) / "beat_sheet.md").read_text(encoding="utf-8")
+    beats = (ep_dir / "beat_sheet.md").read_text(encoding="utf-8")
     ep_list_path = ctx.season_dir(season_id) / "episode_list.md"
-    source_block = ""
     source_chs: list[int] = []
+    strategy = ""
+    if (ctx.root / "adaptation_strategy.md").exists():
+        strategy = (ctx.root / "adaptation_strategy.md").read_text(encoding="utf-8")
     if ep_list_path.exists():
         ep_list = ep_list_path.read_text(encoding="utf-8")
         ep_row = next(
@@ -553,23 +599,27 @@ def run_s5_script(ctx: ProjectContext, season_id: str, ep_num: int, settings: Ap
             None,
         )
         source_chs = (ep_row or {}).get("source_chapters") or []
-        source_block = format_chapter_source_block(
-            load_episode_chapter_texts(ctx, source_chs),
-            title=f"{ep_id} 本集原著摘录",
-        )
-    parts = [f"节拍表：\n{beats}"]
-    must_keep = format_must_keep_block(
-        load_must_keep_scenes(ctx),
+    adapt_bundle = format_adaptation_input_bundle(
+        ctx,
+        excerpt=load_episode_chapter_texts(ctx, source_chs),
+        excerpt_title=f"{ep_id} 本集原著参考摘录",
         episode_id=ep_id,
         chapter_numbers=source_chs,
+        strategy_md=strategy,
     )
-    if must_keep:
-        parts.append(must_keep)
-    if source_block:
-        parts.append(source_block)
+    parts = [
+        format_episode_spec_block(episode_spec),
+        f"节拍表：\n{beats}",
+    ]
+    if notes_path.exists():
+        parts.append(f"改编决策记录：\n{notes_path.read_text(encoding='utf-8')}")
+    if adapt_bundle:
+        parts.append(adapt_bundle)
     parts.append(
-        f"请为 {ep_id} 输出 script.md。全文中文；关键英文对白/独白保留原文。"
-        "场次必须忠实于本集原著摘录与节拍表，不得编造或提前其他章节名场面。"
+        f"请为 {ep_id} 输出 script.md。元数据中文；对白/声音列全部英文（海外受众）。"
+        f"场次时长之和须在 {episode_spec['min_sec']}–{episode_spec['max_sec']} 秒内；"
+        f"最后一场 hook 预算 ≥ {episode_spec['hook_sec']} 秒。"
+        "必保锚点严格保真；非锚点精编须与改编决策记录一致。"
     )
     result = _run_stage_loop(
         ctx,

@@ -9,6 +9,9 @@ from novelscript.checkers.s2 import parse_season_map_md
 # Keywords to map must_keep names → script content (better than naive token overlap)
 MUST_KEEP_HINTS: dict[str, list[str]] = {
     "雨夜": ["雨", "溺", "桥", "车", "河", "水"],
+    "救援": ["救", "伸手", "抓住", "拉起", "救命", "grab", "pull", "rescu"],
+    "神秘": ["神秘", "黑影", "兜帽", "恩人", "男子", "mage"],
+    "落水": ["水", "河", "湖", "下沉", "呛", "underwater", "drown"],
     "结冰": ["冰", "冰晶", "冰刺", "掌心"],
     "教授": ["教授", "天赋", "测试", "罕见"],
     "冰封": ["冰", "客厅", "冰痕", "冰封"],

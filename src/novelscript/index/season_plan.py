@@ -57,6 +57,7 @@ def parse_adaptation_brief(md_text: str) -> dict[str, Any]:
         "season_count": None,
         "episodes_per_season_min": None,
         "episodes_per_season_max": None,
+        "duration_text": "",
         "is_single_season_finale": False,
         "has_multi_season_scale": False,
         "has_inter_season_principle": False,
@@ -98,6 +99,8 @@ def parse_adaptation_brief(md_text: str) -> dict[str, Any]:
             lo, hi = _parse_int_range(value)
             result["episodes_per_season_min"] = lo
             result["episodes_per_season_max"] = hi
+        if "单集时长" in key or "單集時長" in key or "单集" in key and "时长" in key:
+            result["duration_text"] = value
 
     if scale_text and any(marker in scale_text for marker in _SINGLE_SEASON_MARKERS):
         result["is_single_season_finale"] = True

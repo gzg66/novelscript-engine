@@ -14,6 +14,7 @@ log = get_logger("pipeline")
 from novelscript.checkers.base import CheckerReport, passes_gate
 from novelscript.checkers.s2 import check_s2_season_map, parse_season_map_md
 from novelscript.checkers.s3 import check_s3_episode_list, parse_episode_list_md
+from novelscript.index.episode_spec import resolve_episode_spec
 from novelscript.checkers.s4 import check_s4_beat_sheet, parse_beat_sheet_md
 from novelscript.checkers.s5 import check_s5_script, parse_script_md
 from novelscript.config import AppSettings, load_settings
@@ -341,7 +342,12 @@ class Pipeline:
             seasons = parse_season_map_md((self.ctx.root / "S2_season_map.md").read_text(encoding="utf-8"))
             s1 = next((s for s in seasons if s["season_id"] == "S1"), None)
             ch_range = s1["chapter_range"] if s1 else list(range(1, 31))
-            return check_s3_episode_list(episodes, season_chapters=ch_range, must_keep=self._load_must_keep())
+            return check_s3_episode_list(
+                episodes,
+                season_chapters=ch_range,
+                must_keep=self._load_must_keep(),
+                episode_spec=resolve_episode_spec(self.ctx),
+            )
         if stage == "S4":
             md = (self.ctx.episode_dir("S1", 1) / "beat_sheet.md").read_text(encoding="utf-8")
             data = parse_beat_sheet_md(md, episode_id="S1E01")
